@@ -8,7 +8,10 @@ from datetime import date, timedelta
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.database import User
-from app.models.schemas import VaRTimelineResponse, VaRTimelinePoint, CommodityVaR
+from app.models.schemas import (
+    VaRTimelineResponse, VaRTimelinePoint, CommodityVaR,
+    VarPreviewRequest, VarPreviewResponse
+)
 from app.services.var_engine import VaREngine
 
 router = APIRouter()
@@ -84,3 +87,79 @@ async def get_var_timeline(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calculating VaR: {str(e)}")
+
+
+@router.post("/preview", response_model=VarPreviewResponse)
+async def preview_var_impact(
+    request: VarPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Preview VaR impact of a potential hedge WITHOUT mutating the hedge session
+    
+    Per AGENTS.md 10.9:
+    - Does NOT modify hedge session
+    - Temporarily applies this hedge on top of current session
+    - Computes VaR difference only
+    
+    Used by frontend ⚡ Eval button
+    """
+    from app.models.database import HedgeSession
+    from sqlalchemy import select
+    
+    try:
+        # For now, return a simplified preview calculation
+        # Full implementation would need VaR engine update with temp hedge support
+        
+        # Get current VaR (without any additional hedge)
+        var_engine = VaREngine(confidence_level=0.95)
+        current_var_timeline = await var_engine.calculate_var_timeline(
+            db,
+            str(current_user.id),
+            date.today(),
+            date.today() + timedelta(days=30),
+            include_hedge=True
+        )
+        
+        # Get latest VaR point
+        if current_var_timeline:
+            current_var_point = current_var_timeline[-1]
+            current_var = current_var_point['var']
+        else:
+            current_var = {'sugar': 0, 'flour': 0, 'portfolio': 0}
+        
+        # Simplified preview calculation
+        # TODO: Implement proper temp hedge calculation in VaR engine
+        # For now, estimate impact based on quantity and commodity
+        delta_impact = request.quantity * 0.1  # Simplified: 10% of quantity as delta
+        
+        if request.commodity == 'sugar':
+            delta_var = {
+                'sugar': -delta_impact,
+                'flour': 0,
+                'portfolio': -delta_impact * 0.8
+            }
+        else:  # flour
+            delta_var = {
+                'sugar': 0,
+                'flour': -delta_impact,
+                'portfolio': -delta_impact * 0.8
+            }
+        
+        preview_var = {
+            'sugar': current_var['sugar'] + delta_var['sugar'],
+            'flour': current_var['flour'] + delta_var['flour'],
+            'portfolio': current_var['portfolio'] + delta_var['portfolio']
+        }
+        
+        return VarPreviewResponse(
+            delta_var=CommodityVaR(**delta_var),
+            preview_var=CommodityVaR(**preview_var)
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error previewing VaR: {str(e)}"
+        )

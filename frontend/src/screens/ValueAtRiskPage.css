@@ -115,6 +115,14 @@
   font-weight: 600;
 }
 
+.market-price-section {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  padding: 1.5rem;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
 .supporting-charts {
   display: grid;
   grid-template-columns: 1fr;

@@ -13,6 +13,10 @@ import type {
   UploadResponse,
   MarketDataRefreshResponse,
   FuturesContract,
+  VarPreviewRequest,
+  VarPreviewResponse,
+  DataStatusResponse,
+  PortfolioResponse,
 } from '../types/api';
 
 // Authentication
@@ -28,6 +32,12 @@ export const getVaRTimeline = async (params?: {
   end_date?: string;
 }): Promise<VaRTimelineResponse> => {
   const response = await apiClient.get<VaRTimelineResponse>('/var/timeline', { params });
+  return response.data;
+};
+
+// VaR Preview (NEW)
+export const previewVarImpact = async (data: VarPreviewRequest): Promise<VarPreviewResponse> => {
+  const response = await apiClient.post<VarPreviewResponse>('/var/preview', data);
   return response.data;
 };
 
@@ -96,5 +106,17 @@ export const refreshMarketData = async (): Promise<MarketDataRefreshResponse> =>
 
 export const getFuturesContracts = async (): Promise<FuturesContract[]> => {
   const response = await apiClient.get<FuturesContract[]>('/market-data/futures');
+  return response.data;
+};
+
+// Data Status (NEW)
+export const getDataStatus = async (): Promise<DataStatusResponse> => {
+  const response = await apiClient.get<DataStatusResponse>('/data/status');
+  return response.data;
+};
+
+// Portfolio (NEW)
+export const getExecutedHedges = async (): Promise<PortfolioResponse> => {
+  const response = await apiClient.get<PortfolioResponse>('/portfolio/executed-hedges');
   return response.data;
 };

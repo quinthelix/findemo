@@ -172,39 +172,61 @@ async def get_data_status(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get data statistics for current customer
+    Get data upload status for current customer
+    Used by Data Upload screen to show upload state
+    Returns: purchases, inventory, and market_data status with timestamps
     """
+    from app.models.database import MarketPrice
+    
     customer_id = current_user.customer_id
     
-    # Count records per table
-    counts = {}
-    
+    # Check purchases
     result = await db.execute(
-        select(func.count(Purchase.id)).where(Purchase.customer_id == customer_id)
+        select(Purchase)
+        .where(Purchase.customer_id == customer_id)
+        .order_by(Purchase.created_at.desc())
+        .limit(1)
     )
-    counts["purchases"] = result.scalar()
+    last_purchase = result.scalar_one_or_none()
     
-    result = await db.execute(
-        select(func.count(InventorySnapshot.id)).where(InventorySnapshot.customer_id == customer_id)
-    )
-    counts["inventory_snapshots"] = result.scalar()
+    purchases_uploaded = last_purchase is not None
+    purchases_timestamp = last_purchase.created_at.isoformat() if last_purchase else None
     
+    # Check inventory
     result = await db.execute(
-        select(func.count(ExposureBucket.id)).where(ExposureBucket.customer_id == customer_id)
+        select(InventorySnapshot)
+        .where(InventorySnapshot.customer_id == customer_id)
+        .order_by(InventorySnapshot.created_at.desc())
+        .limit(1)
     )
-    counts["exposure_buckets"] = result.scalar()
+    last_inventory = result.scalar_one_or_none()
     
-    result = await db.execute(
-        select(func.count(HedgeSession.id)).where(HedgeSession.customer_id == customer_id)
-    )
-    counts["hedge_sessions"] = result.scalar()
+    inventory_uploaded = last_inventory is not None
+    inventory_timestamp = last_inventory.created_at.isoformat() if last_inventory else None
     
+    # Check market data (global, not customer-specific)
     result = await db.execute(
-        select(func.count(ExecutedHedge.id)).where(ExecutedHedge.customer_id == customer_id)
+        select(MarketPrice)
+        .order_by(MarketPrice.created_at.desc())
+        .limit(1)
     )
-    counts["executed_hedges"] = result.scalar()
+    last_market_price = result.scalar_one_or_none()
+    
+    market_data_available = last_market_price is not None
+    market_data_timestamp = last_market_price.created_at.isoformat() if last_market_price else None
     
     return {
-        "customer_id": str(customer_id),
-        "counts": counts
+        "purchases": {
+            "uploaded": purchases_uploaded,
+            "last_uploaded_at": purchases_timestamp
+        },
+        "inventory": {
+            "uploaded": inventory_uploaded,
+            "last_uploaded_at": inventory_timestamp
+        },
+        "market_data": {
+            "available": market_data_available,
+            "last_refreshed_at": market_data_timestamp,
+            "source": "Yahoo Finance / Stooq"
+        }
     }

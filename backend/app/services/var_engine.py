@@ -351,15 +351,27 @@ class VaREngine:
         # Calculate portfolio VaR
         portfolio_var = self.calculate_portfolio_var(commodity_vars, correlation_matrix)
         
-        # Build timeline response (single point for now, can be extended)
-        timeline = [{
-            "date": start_date,
-            "scenario": "with_hedge" if include_hedge else "without_hedge",
-            "var": {
-                "sugar": commodity_var_dict.get("sugar", 0),
-                "flour": commodity_var_dict.get("flour", 0),
-                "portfolio": portfolio_var
-            }
-        }]
+        # Build timeline response - generate monthly data points
+        timeline = []
+        current_date = start_date
+        scenario = "with_hedge" if include_hedge else "without_hedge"
+        
+        # Generate monthly timeline from start to end
+        while current_date <= end_date:
+            timeline.append({
+                "date": current_date,
+                "scenario": scenario,
+                "var": {
+                    "sugar": commodity_var_dict.get("sugar", 0),
+                    "flour": commodity_var_dict.get("flour", 0),
+                    "portfolio": portfolio_var
+                }
+            })
+            
+            # Move to next month
+            if current_date.month == 12:
+                current_date = date(current_date.year + 1, 1, 1)
+            else:
+                current_date = date(current_date.year, current_date.month + 1, 1)
         
         return timeline

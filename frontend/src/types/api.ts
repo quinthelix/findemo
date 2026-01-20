@@ -73,6 +73,69 @@ export interface ExecuteHedgeResponse {
   final_var: CommodityVaR;
 }
 
+// VaR Preview Types (NEW per AGENTS.md 10.9)
+export interface VarPreviewRequest {
+  commodity: Commodity;
+  contract_month: string;
+  quantity: number;
+}
+
+export interface VarPreviewResponse {
+  delta_var: CommodityVaR;
+  preview_var: CommodityVaR;
+}
+
+// Data Status Types (NEW)
+export interface DatasetStatus {
+  uploaded: boolean;
+  last_uploaded_at: string | null;
+}
+
+export interface MarketDataStatus {
+  available: boolean;
+  last_refreshed_at: string | null;
+  source: string;
+}
+
+export interface DataStatusResponse {
+  purchases: DatasetStatus;
+  inventory: DatasetStatus;
+  market_data: MarketDataStatus;
+}
+
+// Portfolio Types (NEW per AGENTS.md 10.10)
+export interface ExecutedHedge {
+  id: string;
+  commodity: Commodity;
+  contract_month: string;
+  quantity: number;
+  execution_price: number;
+  execution_date: string;
+  value: number;
+  status: 'active' | 'expired';
+}
+
+export interface CommodityBreakdown {
+  total_quantity: number;
+  total_value: number;
+  contracts: number;
+}
+
+export interface PortfolioSummary {
+  total_positions: number;
+  total_quantity: number;
+  total_value: number;
+}
+
+export interface PortfolioResponse {
+  summary: PortfolioSummary;
+  hedges: ExecutedHedge[];
+  breakdown: {
+    sugar: CommodityBreakdown;
+    flour: CommodityBreakdown;
+  };
+}
+
 // Upload Types
 export interface UploadResponse {
   message: string;
@@ -80,11 +143,14 @@ export interface UploadResponse {
   exposure_buckets_created?: number;
 }
 
-// Market Data Types
+// Market Data Types (UPDATED per AGENTS.md 10.8)
 export interface FuturesContract {
   commodity: Commodity;
   contract_month: string;
   price: number;
+  contract_unit: number;           // NEW: Numeric contract size (e.g., 50000)
+  contract_unit_label: string;     // NEW: Display string (e.g., "50k lbs")
+  notional: number;                // NEW: price * contract_unit
   source: string;
 }
 

@@ -38,15 +38,66 @@ async def refresh_market_data_endpoint(
 
 
 @router.get("/futures", response_model=List[FuturesContract])
-async def get_futures_contracts(
+async def get_futures_contracts_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Get all available futures contracts
+    
+    UPDATED per AGENTS.md 10.8:
+    - Now includes contract_unit (numeric)
+    - Now includes contract_unit_label (display string)
+    - Now includes notional (price * unit)
+    
+    Frontend must NOT hardcode units - use these fields
     """
     try:
+        # Get base futures data
         futures = await get_available_futures(db)
-        return futures
+        
+        # Contract unit mapping (could be moved to database later)
+        unit_mapping = {
+            'sugar': {
+                'unit': 50000,
+                'label': '50k lbs'
+            },
+            'flour': {
+                'unit': 100000,
+                'label': '100k lbs'
+            }
+        }
+        
+        # Enrich with unit information
+        enriched_futures = []
+        for future in futures:
+            # Future may be dict or object, handle both
+            if isinstance(future, dict):
+                commodity = future['commodity']
+                contract_month = future['contract_month']
+                price = future['price']
+                source = future.get('source', 'market_data')
+            else:
+                commodity = future.commodity
+                contract_month = future.contract_month
+                price = future.price
+                source = future.source
+            
+            unit_info = unit_mapping.get(commodity, {'unit': 1, 'label': 'unit'})
+            
+            # Create enriched contract with all required fields
+            enriched_future = FuturesContract(
+                commodity=commodity,
+                contract_month=contract_month,
+                price=price,
+                contract_unit=unit_info['unit'],
+                contract_unit_label=unit_info['label'],
+                notional=float(price * unit_info['unit']),
+                source=source
+            )
+            enriched_futures.append(enriched_future)
+        
+        return enriched_futures
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching futures contracts: {str(e)}")

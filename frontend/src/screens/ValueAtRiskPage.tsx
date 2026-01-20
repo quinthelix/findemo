@@ -4,8 +4,9 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getVaRTimeline, getFuturesContracts, getCurrentHedgeSession, createHedgeSession, addHedgeItem } from '../api/endpoints';
+import { getVaRTimeline, getFuturesContracts, getCurrentHedgeSession, createHedgeSession, addHedgeItem, previewVarImpact } from '../api/endpoints';
 import { VaRTimelineChart } from '../components/VaRTimelineChart';
+import { MarketPriceChart } from '../components/MarketPriceChart';
 import type { VaRTimelineResponse, FuturesContract, HedgeSessionWithItems, Commodity } from '../types/api';
 import './ValueAtRiskPage.css';
 
@@ -15,6 +16,8 @@ export const ValueAtRiskPage = () => {
   const [hedgeSession, setHedgeSession] = useState<HedgeSessionWithItems | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedFuture, setSelectedFuture] = useState<FuturesContract | null>(null);
+  const [selectedCommodity, setSelectedCommodity] = useState<Commodity | null>(null);
+  const [hoverDate, setHoverDate] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [evaluating, setEvaluating] = useState(false);
   const navigate = useNavigate();
@@ -26,11 +29,22 @@ export const ValueAtRiskPage = () => {
   const loadData = async () => {
     try {
       setLoading(true);
+      
+      // Calculate 1 year history + 1 year future dates
+      const today = new Date();
+      const oneYearAgo = new Date(today);
+      oneYearAgo.setFullYear(today.getFullYear() - 1);
+      const oneYearFuture = new Date(today);
+      oneYearFuture.setFullYear(today.getFullYear() + 1);
+      
+      const startDate = oneYearAgo.toISOString().split('T')[0];
+      const endDate = oneYearFuture.toISOString().split('T')[0];
+      
       const [varResponse, futuresResponse] = await Promise.all([
         getVaRTimeline({
           confidence_level: 0.95,
-          start_date: '2026-01-01',
-          end_date: '2026-12-31',
+          start_date: startDate,
+          end_date: endDate,
         }),
         getFuturesContracts(),
       ]);
@@ -39,6 +53,7 @@ export const ValueAtRiskPage = () => {
       setFutures(futuresResponse);
       if (futuresResponse.length > 0) {
         setSelectedFuture(futuresResponse[0]);
+        // Don't select a commodity by default - wait for user to click
       }
       
       // Initialize quantities for each future
@@ -64,15 +79,28 @@ export const ValueAtRiskPage = () => {
   const handleEvaluate = async (future: FuturesContract) => {
     setEvaluating(true);
     try {
-      const varResponse = await getVaRTimeline({
-        confidence_level: 0.95,
-        start_date: '2026-01-01',
-        end_date: '2026-12-31',
+      const qty = quantities[`${future.commodity}-${future.contract_month}`] || 0;
+      
+      // Use preview endpoint (non-mutating per AGENTS.md 10.9)
+      const preview = await previewVarImpact({
+        commodity: future.commodity,
+        contract_month: future.contract_month,
+        quantity: qty
       });
-      setVarData(varResponse);
-      alert(`Evaluated impact for ${future.commodity.toUpperCase()}`);
+      
+      // Show preview results
+      const deltaPortfolio = preview.delta_var.portfolio;
+      const deltaPercent = ((deltaPortfolio / preview.preview_var.portfolio) * 100).toFixed(1);
+      alert(
+        `VaR Impact Preview:\n\n` +
+        `Delta Portfolio VaR: $${deltaPortfolio.toLocaleString()} (${deltaPercent}%)\n` +
+        `New Portfolio VaR: $${preview.preview_var.portfolio.toLocaleString()}\n\n` +
+        `This is a preview only. Click "Add" to commit.`
+      );
+      
     } catch (err) {
-      console.error('Failed to evaluate:', err);
+      console.error('Failed to preview:', err);
+      alert('Failed to preview VaR impact');
     } finally {
       setEvaluating(false);
     }
@@ -122,6 +150,62 @@ export const ValueAtRiskPage = () => {
   const varReduction = currentVaR - hedgedVaR;
   const varReductionPercent = currentVaR > 0 ? (varReduction / currentVaR) * 100 : 0;
 
+  // Generate market price data (mock data - would come from API in production)
+  // CRITICAL: Generate data points for FULL range (including future dates with null prices)
+  // This ensures the chart axis spans the same range as VaR chart
+  const generateMarketPriceData = (commodity: Commodity) => {
+    const today = new Date();
+    const data = [];
+    
+    // Generate data for FULL range: 1 year history + 1 year future
+    // Use monthly intervals to match VaR chart backend data
+    for (let monthOffset = -12; monthOffset <= 12; monthOffset++) {
+      const date = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+      
+      // Only generate actual prices for historical data (past and current month)
+      if (monthOffset <= 0) {
+        // Base prices with some variation
+        const basePrice = commodity === 'sugar' ? 0.52 : 0.40;
+        const variation = Math.sin(monthOffset * 30 / 30) * 0.05 + (Math.random() * 0.02 - 0.01);
+        const price = basePrice + variation;
+        
+        data.push({
+          date: date.toISOString().split('T')[0],
+          price: Math.max(0.1, price),
+          isFuture: false
+        });
+      } else {
+        // Add placeholder points for future months (price will be null/undefined)
+        data.push({
+          date: date.toISOString().split('T')[0],
+          price: null as any,  // null price for future dates
+          isFuture: true
+        });
+      }
+    }
+    
+    return data;
+  };
+
+  const marketPriceData = selectedCommodity ? generateMarketPriceData(selectedCommodity) : [];
+  
+  // Store the date range for chart alignment
+  const today = new Date();
+  const oneYearAgo = new Date(today);
+  oneYearAgo.setFullYear(today.getFullYear() - 1);
+  const oneYearFuture = new Date(today);
+  oneYearFuture.setFullYear(today.getFullYear() + 1);
+  const chartStartDate = oneYearAgo.toISOString().split('T')[0];
+  const chartEndDate = oneYearFuture.toISOString().split('T')[0];
+
+  const handleCommodityClick = (commodity: Commodity) => {
+    setSelectedCommodity(commodity);
+  };
+
+  const handleChartHover = (date: string | null) => {
+    setHoverDate(date);
+  };
+
   if (loading) {
     return (
       <div className="var-page">
@@ -152,21 +236,82 @@ export const ValueAtRiskPage = () => {
         <div className="charts-area">
           <section className="main-chart-section">
             <h2>Portfolio VaR Timeline</h2>
-            {varData && <VaRTimelineChart data={varData} />}
+            {varData && (
+              <VaRTimelineChart 
+                data={varData} 
+                onCommoditySelect={handleCommodityClick}
+                hoverDate={hoverDate}
+                onHoverChange={handleChartHover}
+              />
+            )}
           </section>
+
+          {selectedCommodity ? (
+            <section className="market-price-section">
+              <MarketPriceChart 
+                commodity={selectedCommodity} 
+                data={marketPriceData}
+                startDate={chartStartDate}
+                endDate={chartEndDate}
+                hoverDate={hoverDate}
+                onHoverChange={handleChartHover}
+              />
+            </section>
+          ) : (
+            <section className="market-price-section">
+              <div style={{
+                padding: '2rem',
+                textAlign: 'center',
+                color: 'rgba(255,255,255,0.5)',
+                fontSize: '0.9375rem'
+              }}>
+                Click on a commodity line in the VaR chart above or a VaR box below to view market prices
+              </div>
+            </section>
+          )}
 
           <section className="supporting-charts">
             <div className="chart-card" style={{gridColumn: '1 / -1'}}>
               <h3>Commodity VaR Breakdown</h3>
               <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem'}}>
-                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', background: 'rgba(102, 126, 234, 0.1)', borderRadius: '8px', border: '1px solid rgba(102, 126, 234, 0.3)'}}>
-                  <span style={{fontSize: '0.9375rem', color: 'rgba(255,255,255,0.8)', fontWeight: 600}}>Sugar VaR</span>
+                <div 
+                  style={{
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    padding: '1rem', 
+                    background: selectedCommodity === 'sugar' ? 'rgba(102, 126, 234, 0.2)' : 'rgba(102, 126, 234, 0.1)', 
+                    borderRadius: '8px', 
+                    border: selectedCommodity === 'sugar' ? '2px solid rgba(102, 126, 234, 0.6)' : '1px solid rgba(102, 126, 234, 0.3)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onClick={() => handleCommodityClick('sugar')}
+                >
+                  <span style={{fontSize: '0.9375rem', color: 'rgba(255,255,255,0.8)', fontWeight: 600}}>
+                    Sugar VaR {selectedCommodity === 'sugar' && '◀'}
+                  </span>
                   <span style={{fontSize: '1.25rem', color: '#ffffff', fontWeight: 700}}>
                     ${((varData?.timeline[0]?.var.sugar || 0) / 1000).toFixed(0)}K
                   </span>
                 </div>
-                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', background: 'rgba(139, 92, 246, 0.1)', borderRadius: '8px', border: '1px solid rgba(139, 92, 246, 0.3)'}}>
-                  <span style={{fontSize: '0.9375rem', color: 'rgba(255,255,255,0.8)', fontWeight: 600}}>Flour VaR</span>
+                <div 
+                  style={{
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    padding: '1rem', 
+                    background: selectedCommodity === 'flour' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.1)', 
+                    borderRadius: '8px', 
+                    border: selectedCommodity === 'flour' ? '2px solid rgba(139, 92, 246, 0.6)' : '1px solid rgba(139, 92, 246, 0.3)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onClick={() => handleCommodityClick('flour')}
+                >
+                  <span style={{fontSize: '0.9375rem', color: 'rgba(255,255,255,0.8)', fontWeight: 600}}>
+                    Flour VaR {selectedCommodity === 'flour' && '◀'}
+                  </span>
                   <span style={{fontSize: '1.25rem', color: '#ffffff', fontWeight: 700}}>
                     ${((varData?.timeline[0]?.var.flour || 0) / 1000).toFixed(0)}K
                   </span>
@@ -196,7 +341,7 @@ export const ValueAtRiskPage = () => {
                 <div className="future-header">
                   <span className="future-commodity">{future.commodity.toUpperCase()}</span>
                   <span className="future-price">
-                    ${future.price.toFixed(2)}/{future.commodity === 'sugar' ? '50k lbs' : '100k lbs'}
+                    ${future.price.toFixed(2)}/{future.contract_unit_label}
                   </span>
                 </div>
 

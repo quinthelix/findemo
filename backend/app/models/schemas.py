@@ -109,14 +109,67 @@ class UploadResponse(BaseModel):
     exposure_buckets_created: int = 0
 
 
+# VaR Preview Schemas (NEW per AGENTS.md 10.9)
+
+class VarPreviewRequest(BaseModel):
+    """POST /var/preview request"""
+    commodity: Commodity
+    contract_month: date
+    quantity: float = Field(gt=0)
+
+
+class VarPreviewResponse(BaseModel):
+    """POST /var/preview response"""
+    delta_var: CommodityVaR
+    preview_var: CommodityVaR
+
+
+# Portfolio Schemas (NEW per AGENTS.md 10.10)
+
+class ExecutedHedgeDetail(BaseModel):
+    """Single executed hedge for portfolio display"""
+    id: str
+    commodity: Commodity
+    contract_month: date
+    quantity: float
+    execution_price: float
+    execution_date: datetime
+    value: float
+    status: Literal["active", "expired"]
+
+
+class CommodityBreakdown(BaseModel):
+    """Breakdown by commodity"""
+    total_quantity: float
+    total_value: float
+    contracts: int
+
+
+class PortfolioSummary(BaseModel):
+    """Portfolio summary statistics"""
+    total_positions: int
+    total_quantity: float
+    total_value: float
+
+
+class PortfolioResponse(BaseModel):
+    """GET /portfolio/executed-hedges response"""
+    summary: PortfolioSummary
+    hedges: List[ExecutedHedgeDetail]
+    breakdown: dict[str, CommodityBreakdown]
+
+
 # Market Data Schemas
 
 class FuturesContract(BaseModel):
-    """Available futures contract"""
+    """Futures contract with pricing (UPDATED per AGENTS.md 10.8)"""
     commodity: Commodity
     contract_month: date
     price: float
-    source: str
+    contract_unit: int = Field(gt=0, description="Numeric contract size (e.g., 50000)")
+    contract_unit_label: str = Field(description="Display string (e.g., '50k lbs')")
+    notional: float = Field(gt=0, description="price * contract_unit")
+    source: str = "market_data"
 
 
 class MarketDataRefreshResponse(BaseModel):
