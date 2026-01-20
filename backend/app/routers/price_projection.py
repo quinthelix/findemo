@@ -118,21 +118,6 @@ async def get_price_projection_timeline(
             )
             purchases = purchases_result.scalars().all()
             
-            # Get futures for this commodity
-            futures = await get_futures_for_commodity(
-                db, str(commodity.id), today
-            )
-            
-            # Build futures lookup by month
-            low_futures_map = {
-                f["contract_month"]: f["price"]
-                for f in futures["low_futures"]
-            }
-            high_futures_map = {
-                f["contract_month"]: f["price"]
-                for f in futures["high_futures"]
-            }
-            
             # Calculate baseline current price (average of recent purchases or default)
             if purchases:
                 baseline_price = float(sum(p.purchase_price for p in purchases[-3:]) / min(3, len(purchases)))
@@ -140,15 +125,53 @@ async def get_price_projection_timeline(
                 # Default prices
                 baseline_price = 20.0 if commodity_name == "sugar" else 15.0
             
+            # Build monthly purchase volume map
+            # Aggregate quantity for each delivery month
+            purchase_volumes = {}
+            for purchase in purchases:
+                # Distribute purchase quantity across delivery months
+                delivery_start = purchase.delivery_start_date
+                delivery_end = purchase.delivery_end_date
+                
+                # Calculate number of months in delivery period
+                months_diff = (delivery_end.year - delivery_start.year) * 12 + (delivery_end.month - delivery_start.month) + 1
+                quantity_per_month = float(purchase.quantity) / months_diff
+                
+                # Add to each month in the delivery period
+                current_month = date(delivery_start.year, delivery_start.month, 1)
+                end_month = date(delivery_end.year, delivery_end.month, 1)
+                
+                while current_month <= end_month:
+                    if current_month not in purchase_volumes:
+                        purchase_volumes[current_month] = 0.0
+                    purchase_volumes[current_month] += quantity_per_month
+                    
+                    # Move to next month
+                    if current_month.month == 12:
+                        current_month = date(current_month.year + 1, 1, 1)
+                    else:
+                        current_month = date(current_month.year, current_month.month + 1, 1)
+            
+            # For future months, estimate volume based on recent average
+            recent_volumes = list(purchase_volumes.values())[-3:] if purchase_volumes else []
+            avg_future_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 1000.0
+            
             # Build timeline
             timeline = []
             current_date = start_date
             
             while current_date <= end_date:
                 is_past = current_date < today
+                month_key = date(current_date.year, current_date.month, 1)
+                
+                # Get volume for this month
+                if is_past:
+                    volume = purchase_volumes.get(month_key, 0.0)
+                else:
+                    volume = avg_future_volume  # Use average for future
                 
                 if is_past:
-                    # PAST: Use actual purchase price or baseline
+                    # PAST: Use actual purchase price * volume
                     # Find purchase on or before this date
                     relevant_purchases = [
                         p for p in purchases
@@ -160,34 +183,37 @@ async def get_price_projection_timeline(
                     else:
                         price = baseline_price
                     
-                    # Past has no uncertainty
+                    # Past has no uncertainty - multiply by volume
+                    total_value = price * volume
+                    
                     timeline.append(PricePoint(
                         date=current_date.isoformat(),
-                        price=price,
-                        high_future=price,
-                        low_future=price,
+                        price=total_value,
+                        high_future=total_value,
+                        low_future=total_value,
                         is_past=True
                     ))
                 else:
-                    # FUTURE: Return null for price, only show high/low futures
+                    # FUTURE: Return null for price, only show high/low futures * volume
                     # Calculate time distance from today (in years)
                     days_ahead = (current_date - today).days
                     years_ahead = days_ahead / 365.0
                     
                     # Growing uncertainty: bands expand with sqrt(time)
-                    # This represents increasing price uncertainty over time
-                    base_uncertainty = 0.05  # 5% base uncertainty
-                    time_factor = (1.0 + years_ahead ** 0.5)  # Square root of time
+                    # Increased to match realistic commodity price volatility
+                    base_uncertainty = 0.20  # 20% base uncertainty (realistic for commodities)
+                    time_factor = (1.0 + 1.5 * (years_ahead ** 0.5))  # Accelerated growth
                     uncertainty = base_uncertainty * time_factor
                     
                     high_future_price = baseline_price * (1.0 + uncertainty)
                     low_future_price = baseline_price * (1.0 - uncertainty)
                     
+                    # Multiply by volume
                     timeline.append(PricePoint(
                         date=current_date.isoformat(),
                         price=0.0,  # Null/zero for future - don't show baseline
-                        high_future=high_future_price,
-                        low_future=low_future_price,
+                        high_future=high_future_price * volume,
+                        low_future=low_future_price * volume,
                         is_past=False
                     ))
                 

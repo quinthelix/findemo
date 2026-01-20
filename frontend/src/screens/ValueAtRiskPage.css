@@ -89,7 +89,7 @@
 
 .var-content {
   display: grid;
-  grid-template-columns: 70fr 30fr;
+  grid-template-columns: 79fr 21fr;
   gap: 2rem;
   width: 100%;
 }

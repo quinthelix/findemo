@@ -406,7 +406,7 @@ export const ValueAtRiskPage = () => {
         <div className="charts-area">
           <section className="main-chart-section">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-              <h2 style={{ margin: 0 }}>Price Projection with Uncertainty</h2>
+              <h2 style={{ margin: 0 }}>Total Cost Projection with Uncertainty</h2>
               <div style={{ 
                 display: 'flex', 
                 gap: '0.5rem', 

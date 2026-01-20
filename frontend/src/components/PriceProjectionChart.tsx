@@ -92,10 +92,10 @@ export const PriceProjectionChart: React.FC<PriceProjectionChartProps> = ({ data
   return (
     <div style={{ width: '100%', height: '100%' }}>
       <div style={{ marginBottom: '10px', color: '#ccc', fontSize: '18px', fontWeight: 600 }}>
-        Price Projection with Uncertainty Bands
+        Total Cost Projection with Uncertainty Bands
       </div>
       <div style={{ marginBottom: '15px', color: '#999', fontSize: '14px' }}>
-        Past: Known prices (flat lines) | Future: Projected prices with growing uncertainty (shaded areas)
+        Past: Actual costs (price × volume) | Future: Projected costs with growing uncertainty
       </div>
       
       <ResponsiveContainer width="100%" height={400}>
@@ -119,7 +119,7 @@ export const PriceProjectionChart: React.FC<PriceProjectionChartProps> = ({ data
           <YAxis
             stroke="#888"
             tick={{ fill: '#888', fontSize: 12 }}
-            label={{ value: 'Price ($)', angle: -90, position: 'insideLeft', fill: '#888' }}
+            label={{ value: 'Total Cost ($)', angle: -90, position: 'insideLeft', fill: '#888' }}
             domain={yAxisDomain}
           />
           <Tooltip
