@@ -13,6 +13,11 @@ export const Sidebar = () => {
       </div>
 
       <nav className="sidebar-nav">
+        <NavLink to="/dashboard/upload" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+          <span className="nav-icon">⬆</span>
+          <span className="nav-label">Data Upload</span>
+        </NavLink>
+
         <NavLink to="/dashboard/var" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
           <span className="nav-icon">◈</span>
           <span className="nav-label">Value at Risk</span>

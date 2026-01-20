@@ -62,75 +62,153 @@ export const DataLoadScreen = () => {
   };
 
   return (
-    <div className="data-load-container">
-      <div className="data-load-card">
-        <h1>Data Load</h1>
-        <p className="subtitle">Upload your exposure data to begin</p>
+    <div className="data-load-page">
+      <div className="page-header">
+        <h1>Data Upload</h1>
+        <p>Upload your exposure data and inventory to begin risk analysis</p>
+      </div>
 
+      <div className="uploads-container">
         <div className="upload-section">
-          <div className="upload-group">
-            <label htmlFor="purchases">
-              <strong>Purchases Excel</strong>
-              <span className="file-hint">Historical procurement data</span>
-            </label>
+          <h2><span className="section-icon">▦</span> Historic Purchases</h2>
+          <div className="upload-zone">
+            <div className="upload-icon">⇪</div>
+            <p className="primary-text">Drop file or click</p>
+            <p>Excel (.xlsx, .xls)</p>
             <input
-              id="purchases"
               type="file"
               accept=".xlsx,.xls"
               onChange={handlePurchasesUpload}
               disabled={loading}
+              style={{ display: 'none' }}
+              id="purchases-input"
             />
-            {purchasesFile && (
-              <div className="file-selected">✓ {purchasesFile.name}</div>
-            )}
-          </div>
-
-          <div className="upload-group">
-            <label htmlFor="inventory">
-              <strong>Inventory Excel</strong>
-              <span className="file-hint">Current inventory snapshots</span>
+            <label htmlFor="purchases-input" style={{ display: 'block', cursor: 'pointer' }}>
+              <span style={{ opacity: 0 }}>Click to upload</span>
             </label>
+          </div>
+          {purchasesFile && (
+            <div className="file-info">
+              <div>
+                <div className="file-name"><span className="file-check">✓</span> {purchasesFile.name}</div>
+                <div className="file-size">{(purchasesFile.size / 1024).toFixed(2)} KB</div>
+              </div>
+              <button className="btn-remove" onClick={() => setPurchasesFile(null)}>×</button>
+            </div>
+          )}
+          {purchasesFile && (
+            <button className="btn-upload" onClick={async () => {
+              try {
+                await uploadPurchases(purchasesFile);
+                setSuccess('Purchases uploaded successfully!');
+              } catch (err: any) {
+                setError(err.response?.data?.detail || 'Upload failed');
+              }
+            }}>
+              Upload Purchases
+            </button>
+          )}
+        </div>
+
+        <div className="upload-section">
+          <h2><span className="section-icon">▥</span> Inventory Data</h2>
+          <div className="upload-zone">
+            <div className="upload-icon">⇪</div>
+            <p className="primary-text">Drop file or click</p>
+            <p>Excel (.xlsx, .xls)</p>
             <input
-              id="inventory"
               type="file"
               accept=".xlsx,.xls"
               onChange={handleInventoryUpload}
               disabled={loading}
+              style={{ display: 'none' }}
+              id="inventory-input"
             />
-            {inventoryFile && (
-              <div className="file-selected">✓ {inventoryFile.name}</div>
-            )}
+            <label htmlFor="inventory-input" style={{ display: 'block', cursor: 'pointer' }}>
+              <span style={{ opacity: 0 }}>Click to upload</span>
+            </label>
+          </div>
+          {inventoryFile && (
+            <div className="file-info">
+              <div>
+                <div className="file-name"><span className="file-check">✓</span> {inventoryFile.name}</div>
+                <div className="file-size">{(inventoryFile.size / 1024).toFixed(2)} KB</div>
+              </div>
+              <button className="btn-remove" onClick={() => setInventoryFile(null)}>×</button>
+            </div>
+          )}
+          {inventoryFile && (
+            <button className="btn-upload" onClick={async () => {
+              try {
+                await uploadInventory(inventoryFile);
+                setSuccess('Inventory uploaded successfully!');
+              } catch (err: any) {
+                setError(err.response?.data?.detail || 'Upload failed');
+              }
+            }}>
+              Upload Inventory
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="status-section">
+        <h2><span className="section-icon">◆</span> Data Status</h2>
+        <div className="status-item">
+          <span className={`status-icon ${purchasesFile ? 'status-complete' : 'status-pending'}`}>
+            {purchasesFile ? '●' : '○'}
+          </span>
+          <div className="status-text">
+            <span className="status-label">Purchases Data</span>
+            <span className="status-detail">
+              {purchasesFile ? `${purchasesFile.name} ready` : 'Not uploaded'}
+            </span>
           </div>
         </div>
-
-        {error && <div className="error-message">{error}</div>}
-        {success && <div className="success-message">{success}</div>}
-
-        <div className="button-group">
-          <button
-            onClick={handleSubmit}
-            disabled={loading || !purchasesFile || !inventoryFile}
-            className="btn-primary"
-          >
-            {loading ? 'Uploading...' : 'Upload & Continue'}
-          </button>
-          
-          <button
-            onClick={handleSkip}
-            disabled={loading}
-            className="btn-secondary"
-          >
-            Skip (Use Demo Data)
-          </button>
+        <div className="status-item">
+          <span className={`status-icon ${inventoryFile ? 'status-complete' : 'status-pending'}`}>
+            {inventoryFile ? '●' : '○'}
+          </span>
+          <div className="status-text">
+            <span className="status-label">Inventory Data</span>
+            <span className="status-detail">
+              {inventoryFile ? `${inventoryFile.name} ready` : 'Not uploaded'}
+            </span>
+          </div>
         </div>
-
-        <div className="info-box">
-          <h3>Required Format</h3>
-          <ul>
-            <li>Purchases: commodity, date, quantity, price</li>
-            <li>Inventory: commodity, date, quantity</li>
-          </ul>
+        <div className="status-item">
+          <span className="status-icon status-sync">◎</span>
+          <div className="status-text">
+            <span className="status-label">Market Data</span>
+            <span className="status-detail">Auto-refreshed from Yahoo Finance & Stooq</span>
+          </div>
         </div>
+      </div>
+
+      {error && <div style={{ color: '#f87171', padding: '1rem', marginBottom: '1rem' }}>{error}</div>}
+      {success && <div style={{ color: '#22d3ee', padding: '1rem', marginBottom: '1rem' }}>{success}</div>}
+
+      <div className="actions-section">
+        <button
+          className="btn-secondary"
+          onClick={async () => {
+            try {
+              await refreshMarketData();
+              setSuccess('Market data refreshed!');
+            } catch (err: any) {
+              setError(err.response?.data?.detail || 'Refresh failed');
+            }
+          }}
+        >
+          <span className="btn-icon">↻</span> Refresh Market Data
+        </button>
+        <button
+          className="btn-primary"
+          onClick={() => navigate('/dashboard/var')}
+          disabled={!purchasesFile && !inventoryFile}
+        >
+          Proceed to Analysis <span className="btn-icon">→</span>
+        </button>
       </div>
     </div>
   );

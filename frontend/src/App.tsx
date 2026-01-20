@@ -5,6 +5,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { NewLoginScreen } from './screens/NewLoginScreen';
 import { DashboardLayout } from './screens/DashboardLayout';
+import { DataLoadScreen } from './screens/DataLoadScreen';
 import { ValueAtRiskPage } from './screens/ValueAtRiskPage';
 import { TradeExecutionPage } from './screens/TradeExecutionPage';
 import { PortfolioPage } from './screens/PortfolioPage';
@@ -35,7 +36,8 @@ function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate to="/dashboard/var" replace />} />
+          <Route index element={<Navigate to="/dashboard/upload" replace />} />
+          <Route path="upload" element={<DataLoadScreen />} />
           <Route path="var" element={<ValueAtRiskPage />} />
           <Route path="execution" element={<TradeExecutionPage />} />
           <Route path="portfolio" element={<PortfolioPage />} />
