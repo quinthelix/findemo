@@ -1,0 +1,23 @@
+# Docker Compose Override - Disables provenance/attestation for faster builds
+# This file is loaded automatically alongside docker-compose.yml
+
+# Disable BuildKit provenance generation to prevent hangs
+x-build-config: &build-config
+  x-bake:
+    no-cache: false
+    pull: false
+    provenance: false
+    sbom: false
+
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        BUILDKIT_INLINE_CACHE: "0"
+  
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BUILDKIT_INLINE_CACHE: "0"

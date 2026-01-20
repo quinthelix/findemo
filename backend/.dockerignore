@@ -1,22 +1,24 @@
-# Python
+# Python cache and generated files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-*.pyc
-
-# Virtual environments
-venv/
-.venv/
-ENV/
-env/
+*.egg-info/
+dist/
+build/
+*.egg
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
-*.log
+.tox/
+
+# Virtual environments
+venv/
+env/
+ENV/
 
 # IDE
 .vscode/
@@ -28,20 +30,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Git
-.git/
-.gitignore
+# Logs
+*.log
 
-# Documentation
-*.md
-docs/
-
-# Development files
-.env
-.env.local
-uv.lock
-
-# Build artifacts
-dist/
-build/
-*.egg-info/
+# Database
+*.db
+*.sqlite
