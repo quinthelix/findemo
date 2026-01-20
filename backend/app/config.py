@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     """Application settings"""
     
     # Database
-    database_url: str = "postgresql://findemo:findemo_dev_pass@localhost:5432/findemo_db"
+    database_url: str = "postgresql://findemo:findemo_dev_pass@localhost:5432/findemo"
     
     # JWT
     jwt_secret: str = "dev_secret_key_change_in_production"

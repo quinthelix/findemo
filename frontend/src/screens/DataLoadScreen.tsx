@@ -2,7 +2,7 @@
  * Screen 2: Data Load
  * Upload Excel files and trigger market data fetch
  */
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { uploadPurchases, uploadInventory, refreshMarketData } from '../api/endpoints';
 import './DataLoadScreen.css';
@@ -13,17 +13,74 @@ export const DataLoadScreen = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [purchasesDragActive, setPurchasesDragActive] = useState(false);
+  const [inventoryDragActive, setInventoryDragActive] = useState(false);
   const navigate = useNavigate();
+  
+  const purchasesInputRef = useRef<HTMLInputElement>(null);
+  const inventoryInputRef = useRef<HTMLInputElement>(null);
 
   const handlePurchasesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
+    if (e.target.files && e.target.files[0]) {
       setPurchasesFile(e.target.files[0]);
     }
   };
 
   const handleInventoryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
+    if (e.target.files && e.target.files[0]) {
       setInventoryFile(e.target.files[0]);
+    }
+  };
+
+  // Drag and drop handlers for purchases
+  const handlePurchasesDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setPurchasesDragActive(true);
+    } else if (e.type === "dragleave") {
+      setPurchasesDragActive(false);
+    }
+  };
+
+  const handlePurchasesDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setPurchasesDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        setPurchasesFile(file);
+      } else {
+        setError('Please upload an Excel file (.xlsx or .xls)');
+      }
+    }
+  };
+
+  // Drag and drop handlers for inventory
+  const handleInventoryDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setInventoryDragActive(true);
+    } else if (e.type === "dragleave") {
+      setInventoryDragActive(false);
+    }
+  };
+
+  const handleInventoryDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setInventoryDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        setInventoryFile(file);
+      } else {
+        setError('Please upload an Excel file (.xlsx or .xls)');
+      }
     }
   };
 
@@ -71,21 +128,25 @@ export const DataLoadScreen = () => {
       <div className="uploads-container">
         <div className="upload-section">
           <h2><span className="section-icon">▦</span> Historic Purchases</h2>
-          <div className="upload-zone">
+          <div 
+            className={`upload-zone ${purchasesDragActive ? 'active' : ''}`}
+            onDragEnter={handlePurchasesDrag}
+            onDragLeave={handlePurchasesDrag}
+            onDragOver={handlePurchasesDrag}
+            onDrop={handlePurchasesDrop}
+            onClick={() => purchasesInputRef.current?.click()}
+          >
             <div className="upload-icon">⇪</div>
             <p className="primary-text">Drop file or click</p>
             <p>Excel (.xlsx, .xls)</p>
             <input
+              ref={purchasesInputRef}
               type="file"
               accept=".xlsx,.xls"
               onChange={handlePurchasesUpload}
               disabled={loading}
               style={{ display: 'none' }}
-              id="purchases-input"
             />
-            <label htmlFor="purchases-input" style={{ display: 'block', cursor: 'pointer' }}>
-              <span style={{ opacity: 0 }}>Click to upload</span>
-            </label>
           </div>
           {purchasesFile && (
             <div className="file-info">
@@ -112,21 +173,25 @@ export const DataLoadScreen = () => {
 
         <div className="upload-section">
           <h2><span className="section-icon">▥</span> Inventory Data</h2>
-          <div className="upload-zone">
+          <div 
+            className={`upload-zone ${inventoryDragActive ? 'active' : ''}`}
+            onDragEnter={handleInventoryDrag}
+            onDragLeave={handleInventoryDrag}
+            onDragOver={handleInventoryDrag}
+            onDrop={handleInventoryDrop}
+            onClick={() => inventoryInputRef.current?.click()}
+          >
             <div className="upload-icon">⇪</div>
             <p className="primary-text">Drop file or click</p>
             <p>Excel (.xlsx, .xls)</p>
             <input
+              ref={inventoryInputRef}
               type="file"
               accept=".xlsx,.xls"
               onChange={handleInventoryUpload}
               disabled={loading}
               style={{ display: 'none' }}
-              id="inventory-input"
             />
-            <label htmlFor="inventory-input" style={{ display: 'block', cursor: 'pointer' }}>
-              <span style={{ opacity: 0 }}>Click to upload</span>
-            </label>
           </div>
           {inventoryFile && (
             <div className="file-info">

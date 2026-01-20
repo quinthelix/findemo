@@ -1,9 +1,14 @@
-# Python cache and generated files
+# Python cache and generated files (recursive patterns!)
+**/__pycache__/
 __pycache__/
+**/*.py[cod]
 *.py[cod]
+**/*.pyc
+*.pyc
 *$py.class
 *.so
 .Python
+**/*.egg-info/
 *.egg-info/
 dist/
 build/
