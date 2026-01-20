@@ -1,0 +1,70 @@
+.risk-container {
+  min-height: 100vh;
+  background: #f5f7fa;
+  padding: 2rem;
+}
+
+.risk-header {
+  margin-bottom: 2rem;
+}
+
+.risk-header h1 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+  font-size: 2rem;
+}
+
+.risk-header p {
+  margin: 0;
+  color: #666;
+  font-size: 1rem;
+}
+
+.risk-content {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 2rem;
+  align-items: start;
+}
+
+.var-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.var-section h2 {
+  margin: 0 0 1.5rem 0;
+  color: #333;
+  font-size: 1.5rem;
+}
+
+.hedge-section {
+  position: sticky;
+  top: 2rem;
+}
+
+.loading-state,
+.error-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 50vh;
+  font-size: 1.25rem;
+  color: #666;
+}
+
+.error-state {
+  color: #c33;
+}
+
+@media (max-width: 1024px) {
+  .risk-content {
+    grid-template-columns: 1fr;
+  }
+
+  .hedge-section {
+    position: static;
+  }
+}

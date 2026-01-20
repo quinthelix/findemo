@@ -1,0 +1,199 @@
+.hedge-panel {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.hedge-panel h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.5rem;
+  color: #333;
+}
+
+.panel-subtitle {
+  margin: 0 0 1.5rem 0;
+  color: #666;
+  font-size: 0.875rem;
+}
+
+.add-hedge-section {
+  padding-bottom: 1.5rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.add-hedge-section h3,
+.current-hedges h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.125rem;
+  color: #333;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #333;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.form-group select,
+.form-group input {
+  width: 100%;
+  padding: 0.625rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.form-group select:focus,
+.form-group input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.btn-add,
+.btn-proceed {
+  width: 100%;
+  padding: 0.75rem;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-add {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 0.875rem;
+}
+
+.btn-proceed {
+  background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
+  color: white;
+  font-size: 1rem;
+  margin-top: 1.5rem;
+}
+
+.btn-add:hover:not(:disabled),
+.btn-proceed:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.btn-add:disabled,
+.btn-proceed:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.no-hedges {
+  text-align: center;
+  color: #999;
+  font-style: italic;
+  padding: 1.5rem 0;
+}
+
+.hedge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.hedge-item {
+  padding: 1rem;
+  background: #f5f7fa;
+  border-radius: 6px;
+  border-left: 4px solid #667eea;
+}
+
+.hedge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.hedge-commodity {
+  font-weight: 600;
+  color: #667eea;
+  font-size: 0.875rem;
+}
+
+.btn-remove {
+  background: none;
+  border: none;
+  color: #c33;
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+}
+
+.btn-remove:hover:not(:disabled) {
+  color: #a00;
+}
+
+.hedge-details {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.hedge-quantity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.hedge-quantity input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.notional {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #333;
+  min-width: 100px;
+  text-align: right;
+}
+
+.hedge-summary {
+  padding: 1rem;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.summary-row:last-child {
+  margin-bottom: 0;
+}
+
+.summary-row.total {
+  padding-top: 0.75rem;
+  border-top: 1px solid #ddd;
+  font-size: 1rem;
+  color: #333;
+}
