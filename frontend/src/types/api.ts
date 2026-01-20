@@ -17,6 +17,8 @@ export interface LoginRequest {
 export interface LoginResponse {
   access_token: string;
   token_type: string;
+  username: string;
+  customer_name: string;
 }
 
 // Hedge Session Types
@@ -88,11 +90,13 @@ export interface VarPreviewResponse {
 // Data Status Types (NEW)
 export interface DatasetStatus {
   uploaded: boolean;
+  record_count: number;
   last_uploaded_at: string | null;
 }
 
 export interface MarketDataStatus {
   available: boolean;
+  record_count: number;
   last_refreshed_at: string | null;
   source: string;
 }

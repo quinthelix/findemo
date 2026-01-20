@@ -2,10 +2,12 @@
  * Screen 2: Data Load
  * Upload Excel files and trigger market data fetch
  */
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { uploadPurchases, uploadInventory, refreshMarketData } from '../api/endpoints';
+import { uploadPurchases, uploadInventory, refreshMarketData, getDataStatus, resetData } from '../api/endpoints';
 import './DataLoadScreen.css';
+
+import type { DataStatusResponse } from '../types/api';
 
 export const DataLoadScreen = () => {
   const [purchasesFile, setPurchasesFile] = useState<File | null>(null);
@@ -15,20 +17,130 @@ export const DataLoadScreen = () => {
   const [success, setSuccess] = useState('');
   const [purchasesDragActive, setPurchasesDragActive] = useState(false);
   const [inventoryDragActive, setInventoryDragActive] = useState(false);
+  const [dataStatus, setDataStatus] = useState<DataStatusResponse | null>(null);
+  const [showClearWarning, setShowClearWarning] = useState(false);
+  const [pendingUpload, setPendingUpload] = useState<'purchases' | 'inventory' | null>(null);
   const navigate = useNavigate();
   
   const purchasesInputRef = useRef<HTMLInputElement>(null);
   const inventoryInputRef = useRef<HTMLInputElement>(null);
 
+  // Load data status on mount
+  useEffect(() => {
+    loadDataStatus();
+  }, []);
+
+  const loadDataStatus = async () => {
+    try {
+      const status = await getDataStatus();
+      setDataStatus(status);
+    } catch (err) {
+      console.error('Failed to load data status:', err);
+    }
+  };
+
+  const handleClearPurchases = async () => {
+    try {
+      setLoading(true);
+      await resetData('purchases');
+      setSuccess('Purchases data cleared successfully');
+      await loadDataStatus();
+      setPurchasesFile(null);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to clear purchases');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClearInventory = async () => {
+    try {
+      setLoading(true);
+      await resetData('inventory');
+      setSuccess('Inventory data cleared successfully');
+      await loadDataStatus();
+      setInventoryFile(null);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to clear inventory');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
   const handlePurchasesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setPurchasesFile(e.target.files[0]);
+      const file = e.target.files[0];
+      // Check if data already exists
+      if (dataStatus?.purchases.uploaded) {
+        setPurchasesFile(file);
+        setPendingUpload('purchases');
+        setShowClearWarning(true);
+      } else {
+        setPurchasesFile(file);
+      }
     }
   };
 
   const handleInventoryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setInventoryFile(e.target.files[0]);
+      const file = e.target.files[0];
+      // Check if data already exists
+      if (dataStatus?.inventory.uploaded) {
+        setInventoryFile(file);
+        setPendingUpload('inventory');
+        setShowClearWarning(true);
+      } else {
+        setInventoryFile(file);
+      }
+    }
+  };
+
+  const handleUploadWithClear = async (clearFirst: boolean) => {
+    setShowClearWarning(false);
+    
+    if (clearFirst && pendingUpload) {
+      // Clear only the specific data type
+      if (pendingUpload === 'purchases') {
+        await handleClearPurchases();
+      } else if (pendingUpload === 'inventory') {
+        await handleClearInventory();
+      }
+    }
+    
+    // Upload the pending file
+    if (pendingUpload === 'purchases' && purchasesFile) {
+      await performPurchasesUpload(purchasesFile);
+    } else if (pendingUpload === 'inventory' && inventoryFile) {
+      await performInventoryUpload(inventoryFile);
+    }
+    
+    setPendingUpload(null);
+  };
+
+  const performPurchasesUpload = async (file: File) => {
+    try {
+      setLoading(true);
+      await uploadPurchases(file);
+      setSuccess('Purchases uploaded successfully!');
+      await loadDataStatus();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Upload failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const performInventoryUpload = async (file: File) => {
+    try {
+      setLoading(true);
+      await uploadInventory(file);
+      setSuccess('Inventory uploaded successfully!');
+      await loadDataStatus();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Upload failed');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -84,39 +196,6 @@ export const DataLoadScreen = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    if (!purchasesFile || !inventoryFile) {
-      setError('Please select both files');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      // Upload purchases
-      await uploadPurchases(purchasesFile);
-      
-      // Upload inventory
-      await uploadInventory(inventoryFile);
-      
-      // Refresh market data
-      await refreshMarketData();
-
-      setSuccess('Data loaded successfully! Proceeding to risk view...');
-      setTimeout(() => navigate('/risk'), 1500);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Upload failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSkip = () => {
-    // Skip to risk view with demo data
-    navigate('/risk');
-  };
 
   return (
     <div className="data-load-page">
@@ -157,15 +236,21 @@ export const DataLoadScreen = () => {
               <button className="btn-remove" onClick={() => setPurchasesFile(null)}>×</button>
             </div>
           )}
-          {purchasesFile && (
-            <button className="btn-upload" onClick={async () => {
-              try {
-                await uploadPurchases(purchasesFile);
-                setSuccess('Purchases uploaded successfully!');
-              } catch (err: any) {
-                setError(err.response?.data?.detail || 'Upload failed');
-              }
-            }}>
+          {dataStatus?.purchases.uploaded && !purchasesFile && (
+            <div className="upload-status">
+              <div className="status-badge">Data loaded</div>
+              <div className="status-details">
+                <div>{dataStatus.purchases.record_count} records</div>
+                <div className="status-time">
+                  {dataStatus.purchases.last_uploaded_at && 
+                    new Date(dataStatus.purchases.last_uploaded_at).toLocaleString()}
+                </div>
+              </div>
+              <button className="btn-clear" onClick={handleClearPurchases}>Clear</button>
+            </div>
+          )}
+          {purchasesFile && !showClearWarning && (
+            <button className="btn-upload" onClick={() => performPurchasesUpload(purchasesFile)}>
               Upload Purchases
             </button>
           )}
@@ -202,56 +287,80 @@ export const DataLoadScreen = () => {
               <button className="btn-remove" onClick={() => setInventoryFile(null)}>×</button>
             </div>
           )}
-          {inventoryFile && (
-            <button className="btn-upload" onClick={async () => {
-              try {
-                await uploadInventory(inventoryFile);
-                setSuccess('Inventory uploaded successfully!');
-              } catch (err: any) {
-                setError(err.response?.data?.detail || 'Upload failed');
-              }
-            }}>
+          {dataStatus?.inventory.uploaded && !inventoryFile && (
+            <div className="upload-status">
+              <div className="status-badge">Data loaded</div>
+              <div className="status-details">
+                <div>{dataStatus.inventory.record_count} records</div>
+                <div className="status-time">
+                  {dataStatus.inventory.last_uploaded_at && 
+                    new Date(dataStatus.inventory.last_uploaded_at).toLocaleString()}
+                </div>
+              </div>
+              <button className="btn-clear" onClick={handleClearInventory}>Clear</button>
+            </div>
+          )}
+          {inventoryFile && !showClearWarning && (
+            <button className="btn-upload" onClick={() => performInventoryUpload(inventoryFile)}>
               Upload Inventory
             </button>
           )}
         </div>
       </div>
 
-      <div className="status-section">
-        <h2><span className="section-icon">◆</span> Data Status</h2>
-        <div className="status-item">
-          <span className={`status-icon ${purchasesFile ? 'status-complete' : 'status-pending'}`}>
-            {purchasesFile ? '●' : '○'}
-          </span>
-          <div className="status-text">
-            <span className="status-label">Purchases Data</span>
-            <span className="status-detail">
-              {purchasesFile ? `${purchasesFile.name} ready` : 'Not uploaded'}
-            </span>
+      {/* Optional: Add summary status if needed */}
+      {dataStatus && (dataStatus.purchases.uploaded || dataStatus.inventory.uploaded) && (
+        <div className="summary-section">
+          <div className="summary-content">
+            <div className="summary-item">
+              <span className="summary-icon">✓</span>
+              <span>Ready for analysis</span>
+            </div>
+            {dataStatus.market_data.available && (
+              <div className="summary-item">
+                <span className="summary-icon">◎</span>
+                <span>Market data synced</span>
+              </div>
+            )}
           </div>
         </div>
-        <div className="status-item">
-          <span className={`status-icon ${inventoryFile ? 'status-complete' : 'status-pending'}`}>
-            {inventoryFile ? '●' : '○'}
-          </span>
-          <div className="status-text">
-            <span className="status-label">Inventory Data</span>
-            <span className="status-detail">
-              {inventoryFile ? `${inventoryFile.name} ready` : 'Not uploaded'}
-            </span>
-          </div>
-        </div>
-        <div className="status-item">
-          <span className="status-icon status-sync">◎</span>
-          <div className="status-text">
-            <span className="status-label">Market Data</span>
-            <span className="status-detail">Auto-refreshed from Yahoo Finance & Stooq</span>
-          </div>
-        </div>
-      </div>
+      )}
 
       {error && <div style={{ color: '#f87171', padding: '1rem', marginBottom: '1rem' }}>{error}</div>}
       {success && <div style={{ color: '#22d3ee', padding: '1rem', marginBottom: '1rem' }}>{success}</div>}
+
+      {/* Clear Warning Modal */}
+      {showClearWarning && (
+        <div className="modal-overlay" onClick={() => setShowClearWarning(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>Data Already Exists</h2>
+            <p>You already have {pendingUpload} data uploaded. What would you like to do?</p>
+            <div className="modal-actions">
+              <button 
+                className="btn-modal-primary" 
+                onClick={() => handleUploadWithClear(true)}
+              >
+                Clear Old Data & Upload New
+              </button>
+              <button 
+                className="btn-modal-secondary" 
+                onClick={() => handleUploadWithClear(false)}
+              >
+                Keep Both (Merge)
+              </button>
+              <button 
+                className="btn-modal-cancel" 
+                onClick={() => {
+                  setShowClearWarning(false);
+                  setPendingUpload(null);
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="actions-section">
         <button

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
-from app.models.database import User
+from app.models.database import User, Customer
 from app.models.schemas import LoginRequest, LoginResponse
 from app.services.auth_service import verify_password, create_access_token
 
@@ -42,6 +42,10 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Get customer name
+    customer_result = await db.execute(select(Customer).where(Customer.id == user.customer_id))
+    customer = customer_result.scalar_one_or_none()
+    
     # Create access token with customer_id
     access_token = create_access_token(data={
         "sub": str(user.id),
@@ -50,5 +54,7 @@ async def login(
     
     return LoginResponse(
         access_token=access_token,
-        token_type="bearer"
+        token_type="bearer",
+        username=user.username,
+        customer_name=customer.name if customer else "Unknown"
     )

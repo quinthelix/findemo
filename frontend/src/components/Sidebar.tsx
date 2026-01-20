@@ -1,14 +1,29 @@
 /**
  * Sidebar Navigation Component
  */
+import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import './Sidebar.css';
 
 export const Sidebar = () => {
+  const [displayName, setDisplayName] = useState('Findemo');
+  
+  useEffect(() => {
+    // Get customer name and username from localStorage
+    const customerName = localStorage.getItem('customer_name');
+    const username = localStorage.getItem('username');
+    
+    if (customerName && username) {
+      // Capitalize customer name
+      const capitalizedCustomer = customerName.charAt(0).toUpperCase() + customerName.slice(1);
+      setDisplayName(`${capitalizedCustomer} (${username})`);
+    }
+  }, []);
+  
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h1 className="sidebar-logo">Findemo</h1>
+        <h1 className="sidebar-logo">{displayName}</h1>
         <p className="sidebar-subtitle">Risk Management Platform</p>
       </div>
 
@@ -39,6 +54,9 @@ export const Sidebar = () => {
           className="logout-btn"
           onClick={() => {
             localStorage.removeItem('access_token');
+            localStorage.removeItem('username');
+            localStorage.removeItem('customer_name');
+            document.title = 'Findemo - Commodity Risk Management';
             window.location.href = '/';
           }}
         >

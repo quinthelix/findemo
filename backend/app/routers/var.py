@@ -47,6 +47,7 @@ async def get_var_timeline(
         timeline_without_hedge = await var_engine.calculate_var_timeline(
             db,
             str(current_user.id),
+            str(current_user.customer_id),
             start_date,
             end_date,
             include_hedge=False
@@ -56,6 +57,7 @@ async def get_var_timeline(
         timeline_with_hedge = await var_engine.calculate_var_timeline(
             db,
             str(current_user.id),
+            str(current_user.customer_id),
             start_date,
             end_date,
             include_hedge=True
@@ -117,6 +119,7 @@ async def preview_var_impact(
         current_var_timeline = await var_engine.calculate_var_timeline(
             db,
             str(current_user.id),
+            str(current_user.customer_id),
             date.today(),
             date.today() + timedelta(days=30),
             include_hedge=True

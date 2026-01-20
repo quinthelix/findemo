@@ -122,17 +122,19 @@ class VaREngine:
     async def get_exposures_by_bucket(
         self,
         db: AsyncSession,
+        customer_id: str,
         commodity_ids: List[str],
         start_date: date,
         end_date: date
     ) -> Dict[Tuple[str, date], float]:
         """
-        Get exposure by commodity and bucket month
+        Get exposure by commodity and bucket month FOR SPECIFIC CUSTOMER
         Returns dict: (commodity_id, bucket_month) -> quantity
         """
         result = await db.execute(
             select(ExposureBucket)
             .where(
+                ExposureBucket.customer_id == customer_id,
                 ExposureBucket.commodity_id.in_(commodity_ids),
                 ExposureBucket.bucket_month >= start_date,
                 ExposureBucket.bucket_month <= end_date
@@ -263,12 +265,13 @@ class VaREngine:
         self,
         db: AsyncSession,
         user_id: str,
+        customer_id: str,
         start_date: date,
         end_date: date,
         include_hedge: bool = False
     ) -> List[Dict]:
         """
-        Calculate VaR timeline with or without hedge
+        Calculate VaR timeline with or without hedge FOR SPECIFIC CUSTOMER
         Returns list of timeline points
         """
         # Get all commodities
@@ -281,9 +284,9 @@ class VaREngine:
         volatilities = await self.calculate_volatilities(db, commodity_ids)
         correlation_matrix = await self.calculate_correlation_matrix(db, commodity_ids)
         
-        # Get exposures
+        # Get exposures FOR THIS CUSTOMER ONLY
         exposures = await self.get_exposures_by_bucket(
-            db, commodity_ids, start_date, end_date
+            db, customer_id, commodity_ids, start_date, end_date
         )
         
         # Get hedges if requested
@@ -294,70 +297,74 @@ class VaREngine:
         # Get forward prices
         forward_prices = await self.get_forward_prices(db, commodity_ids, start_date)
         
-        # Calculate VaR by bucket and commodity
-        bucket_vars_by_commodity = {cid: [] for cid in commodity_ids}
-        reference_date = datetime.now().date()
-        
-        # Process each exposure bucket
-        for (commodity_id, bucket_month), exposure_qty in exposures.items():
-            # Get hedge quantity for this bucket
-            hedge_qty = hedges.get((commodity_id, bucket_month), 0)
-            net_exposure = exposure_qty - hedge_qty
-            
-            # Get forward price
-            forward_price = forward_prices.get((commodity_id, bucket_month))
-            if not forward_price:
-                # Use latest spot price as fallback
-                result = await db.execute(
-                    select(MarketPrice)
-                    .where(
-                        MarketPrice.commodity_id == commodity_id,
-                        MarketPrice.contract_month.is_(None)
-                    )
-                    .order_by(MarketPrice.price_date.desc())
-                    .limit(1)
-                )
-                price_record = result.scalar_one_or_none()
-                forward_price = float(price_record.price) if price_record else 0.5
-            
-            # Calculate time horizon
-            time_horizon_years = months_until(reference_date, bucket_month) / 12.0
-            if time_horizon_years < 0.01:
-                time_horizon_years = 0.01  # Minimum 0.01 year
-            
-            # Calculate bucket VaR
-            volatility = volatilities.get(commodity_id, 0.15)
-            bucket_var = self.calculate_bucket_var(
-                volatility,
-                forward_price,
-                net_exposure,
-                time_horizon_years
-            )
-            
-            bucket_vars_by_commodity[commodity_id].append(bucket_var)
-        
-        # Calculate commodity-level VaRs
-        commodity_vars = []
-        commodity_var_dict = {}
-        for commodity_id in commodity_ids:
-            bucket_vars = bucket_vars_by_commodity[commodity_id]
-            if bucket_vars:
-                commodity_var = self.calculate_commodity_var(bucket_vars)
-            else:
-                commodity_var = 0.0
-            commodity_vars.append(commodity_var)
-            commodity_var_dict[commodity_names[commodity_id]] = commodity_var
-        
-        # Calculate portfolio VaR
-        portfolio_var = self.calculate_portfolio_var(commodity_vars, correlation_matrix)
-        
-        # Build timeline response - generate monthly data points
+        # Build timeline response - calculate VaR for each date based on remaining exposure
         timeline = []
         current_date = start_date
         scenario = "with_hedge" if include_hedge else "without_hedge"
+        reference_date = datetime.now().date()
         
         # Generate monthly timeline from start to end
         while current_date <= end_date:
+            # Calculate VaR for this specific date (only buckets >= current_date)
+            bucket_vars_by_commodity = {cid: [] for cid in commodity_ids}
+            
+            # Process each exposure bucket that's still in the future from current_date
+            for (commodity_id, bucket_month), exposure_qty in exposures.items():
+                # Only include buckets that haven't delivered yet
+                if bucket_month < current_date:
+                    continue
+                
+                # Get hedge quantity for this bucket
+                hedge_qty = hedges.get((commodity_id, bucket_month), 0)
+                net_exposure = exposure_qty - hedge_qty
+                
+                # Get forward price
+                forward_price = forward_prices.get((commodity_id, bucket_month))
+                if not forward_price:
+                    # Use latest spot price as fallback
+                    result = await db.execute(
+                        select(MarketPrice)
+                        .where(
+                            MarketPrice.commodity_id == commodity_id,
+                            MarketPrice.contract_month.is_(None)
+                        )
+                        .order_by(MarketPrice.price_date.desc())
+                        .limit(1)
+                    )
+                    price_record = result.scalar_one_or_none()
+                    forward_price = float(price_record.price) if price_record else 0.5
+                
+                # Calculate time horizon from current_date to bucket_month
+                time_horizon_years = months_until(current_date, bucket_month) / 12.0
+                if time_horizon_years < 0.01:
+                    time_horizon_years = 0.01  # Minimum 0.01 year
+                
+                # Calculate bucket VaR
+                volatility = volatilities.get(commodity_id, 0.15)
+                bucket_var = self.calculate_bucket_var(
+                    volatility,
+                    forward_price,
+                    net_exposure,
+                    time_horizon_years
+                )
+                
+                bucket_vars_by_commodity[commodity_id].append(bucket_var)
+            
+            # Calculate commodity-level VaRs for this date
+            commodity_vars = []
+            commodity_var_dict = {}
+            for commodity_id in commodity_ids:
+                bucket_vars = bucket_vars_by_commodity[commodity_id]
+                if bucket_vars:
+                    commodity_var = self.calculate_commodity_var(bucket_vars)
+                else:
+                    commodity_var = 0.0
+                commodity_vars.append(commodity_var)
+                commodity_var_dict[commodity_names[commodity_id]] = commodity_var
+            
+            # Calculate portfolio VaR for this date
+            portfolio_var = self.calculate_portfolio_var(commodity_vars, correlation_matrix)
+            
             timeline.append({
                 "date": current_date,
                 "scenario": scenario,

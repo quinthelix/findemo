@@ -147,8 +147,8 @@ export const ValueAtRiskPage = () => {
 
   const currentVaR = varData?.timeline.find(t => t.scenario === 'without_hedge')?.var.portfolio || 0;
   const hedgedVaR = varData?.timeline.find(t => t.scenario === 'with_hedge')?.var.portfolio || 0;
-  const varReduction = currentVaR - hedgedVaR;
-  const varReductionPercent = currentVaR > 0 ? (varReduction / currentVaR) * 100 : 0;
+  // const varReduction = currentVaR - hedgedVaR;
+  // const varReductionPercent = currentVaR > 0 ? (varReduction / currentVaR) * 100 : 0;
 
   // Generate market price data (mock data - would come from API in production)
   // CRITICAL: Generate data points for FULL range (including future dates with null prices)

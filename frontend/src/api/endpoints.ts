@@ -115,6 +115,13 @@ export const getDataStatus = async (): Promise<DataStatusResponse> => {
   return response.data;
 };
 
+// Data Reset (NEW)
+export const resetData = async (dataType?: 'purchases' | 'inventory') => {
+  const params = dataType ? { data_type: dataType } : {};
+  const response = await apiClient.post('/data/reset', null, { params });
+  return response.data;
+};
+
 // Portfolio (NEW)
 export const getExecutedHedges = async (): Promise<PortfolioResponse> => {
   const response = await apiClient.get<PortfolioResponse>('/portfolio/executed-hedges');

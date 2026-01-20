@@ -21,53 +21,60 @@ router = APIRouter()
 
 @router.post("/reset")
 async def reset_customer_data(
+    data_type: str = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Reset all transactional data for current customer
-    Keeps users and commodities (reference data)
-    Clears: purchases, inventory, exposure buckets, hedge sessions, executed hedges
+    Reset transactional data for current customer
+    
+    Query param data_type:
+    - 'purchases': Clear only purchases and exposure buckets
+    - 'inventory': Clear only inventory snapshots
+    - None or 'all': Clear all transactional data
+    
+    Always clears hedge sessions and executed hedges when purchases are cleared
     """
     customer_id = current_user.customer_id
-    
-    # Delete all transactional data for this customer
     deleted_counts = {}
     
-    # Delete executed hedges
-    result = await db.execute(
-        delete(ExecutedHedge).where(ExecutedHedge.customer_id == customer_id)
-    )
-    deleted_counts["executed_hedges"] = result.rowcount
+    if data_type in [None, 'all', 'purchases']:
+        # Delete executed hedges
+        result = await db.execute(
+            delete(ExecutedHedge).where(ExecutedHedge.customer_id == customer_id)
+        )
+        deleted_counts["executed_hedges"] = result.rowcount
+        
+        # Delete hedge sessions (cascade will delete items)
+        result = await db.execute(
+            delete(HedgeSession).where(HedgeSession.customer_id == customer_id)
+        )
+        deleted_counts["hedge_sessions"] = result.rowcount
+        
+        # Delete exposure buckets
+        result = await db.execute(
+            delete(ExposureBucket).where(ExposureBucket.customer_id == customer_id)
+        )
+        deleted_counts["exposure_buckets"] = result.rowcount
+        
+        # Delete purchases
+        result = await db.execute(
+            delete(Purchase).where(Purchase.customer_id == customer_id)
+        )
+        deleted_counts["purchases"] = result.rowcount
     
-    # Delete hedge sessions (cascade will delete items)
-    result = await db.execute(
-        delete(HedgeSession).where(HedgeSession.customer_id == customer_id)
-    )
-    deleted_counts["hedge_sessions"] = result.rowcount
-    
-    # Delete exposure buckets
-    result = await db.execute(
-        delete(ExposureBucket).where(ExposureBucket.customer_id == customer_id)
-    )
-    deleted_counts["exposure_buckets"] = result.rowcount
-    
-    # Delete inventory snapshots
-    result = await db.execute(
-        delete(InventorySnapshot).where(InventorySnapshot.customer_id == customer_id)
-    )
-    deleted_counts["inventory_snapshots"] = result.rowcount
-    
-    # Delete purchases
-    result = await db.execute(
-        delete(Purchase).where(Purchase.customer_id == customer_id)
-    )
-    deleted_counts["purchases"] = result.rowcount
+    if data_type in [None, 'all', 'inventory']:
+        # Delete inventory snapshots
+        result = await db.execute(
+            delete(InventorySnapshot).where(InventorySnapshot.customer_id == customer_id)
+        )
+        deleted_counts["inventory_snapshots"] = result.rowcount
     
     await db.commit()
     
+    data_type_label = data_type if data_type else "all"
     return {
-        "message": f"All data reset for customer",
+        "message": f"{data_type_label.capitalize()} data reset for customer",
         "deleted": deleted_counts
     }
 
@@ -155,8 +162,8 @@ async def seed_demo_data(
     
     await db.commit()
     
-    # Rebuild exposure buckets
-    buckets_created = await rebuild_exposure_buckets(db)
+    # Rebuild exposure buckets FOR THIS CUSTOMER ONLY
+    buckets_created = await rebuild_exposure_buckets(db, str(current_user.customer_id))
     
     return {
         "message": "Demo data seeded successfully",
@@ -174,59 +181,50 @@ async def get_data_status(
     """
     Get data upload status for current customer
     Used by Data Upload screen to show upload state
-    Returns: purchases, inventory, and market_data status with timestamps
+    Returns: purchases, inventory, and market_data status with timestamps and record counts
     """
     from app.models.database import MarketPrice
     
     customer_id = current_user.customer_id
     
-    # Check purchases
+    # Check purchases - count and latest timestamp
     result = await db.execute(
-        select(Purchase)
+        select(func.count(Purchase.id), func.max(Purchase.created_at))
         .where(Purchase.customer_id == customer_id)
-        .order_by(Purchase.created_at.desc())
-        .limit(1)
     )
-    last_purchase = result.scalar_one_or_none()
+    purchases_count, purchases_timestamp = result.one()
+    purchases_uploaded = purchases_count > 0
     
-    purchases_uploaded = last_purchase is not None
-    purchases_timestamp = last_purchase.created_at.isoformat() if last_purchase else None
-    
-    # Check inventory
+    # Check inventory - count and latest timestamp
     result = await db.execute(
-        select(InventorySnapshot)
+        select(func.count(InventorySnapshot.id), func.max(InventorySnapshot.created_at))
         .where(InventorySnapshot.customer_id == customer_id)
-        .order_by(InventorySnapshot.created_at.desc())
-        .limit(1)
     )
-    last_inventory = result.scalar_one_or_none()
-    
-    inventory_uploaded = last_inventory is not None
-    inventory_timestamp = last_inventory.created_at.isoformat() if last_inventory else None
+    inventory_count, inventory_timestamp = result.one()
+    inventory_uploaded = inventory_count > 0
     
     # Check market data (global, not customer-specific)
     result = await db.execute(
-        select(MarketPrice)
-        .order_by(MarketPrice.created_at.desc())
-        .limit(1)
+        select(func.count(MarketPrice.id), func.max(MarketPrice.created_at))
     )
-    last_market_price = result.scalar_one_or_none()
-    
-    market_data_available = last_market_price is not None
-    market_data_timestamp = last_market_price.created_at.isoformat() if last_market_price else None
+    market_count, market_timestamp = result.one()
+    market_data_available = market_count > 0
     
     return {
         "purchases": {
             "uploaded": purchases_uploaded,
-            "last_uploaded_at": purchases_timestamp
+            "record_count": purchases_count or 0,
+            "last_uploaded_at": purchases_timestamp.isoformat() if purchases_timestamp else None
         },
         "inventory": {
             "uploaded": inventory_uploaded,
-            "last_uploaded_at": inventory_timestamp
+            "record_count": inventory_count or 0,
+            "last_uploaded_at": inventory_timestamp.isoformat() if inventory_timestamp else None
         },
         "market_data": {
             "available": market_data_available,
-            "last_refreshed_at": market_data_timestamp,
+            "record_count": market_count or 0,
+            "last_refreshed_at": market_timestamp.isoformat() if market_timestamp else None,
             "source": "Yahoo Finance / Stooq"
         }
     }

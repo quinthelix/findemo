@@ -21,6 +21,13 @@ export const NewLoginScreen = () => {
     try {
       const response = await login({ username, password });
       localStorage.setItem('access_token', response.access_token);
+      localStorage.setItem('username', response.username);
+      localStorage.setItem('customer_name', response.customer_name);
+      
+      // Update page title with company name
+      const displayName = response.customer_name.charAt(0).toUpperCase() + response.customer_name.slice(1);
+      document.title = `${displayName} - Findemo`;
+      
       navigate('/dashboard/var');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Login failed');

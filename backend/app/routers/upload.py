@@ -77,8 +77,8 @@ async def upload_purchases(
         
         await db.commit()
         
-        # Rebuild exposure buckets
-        buckets_created = await rebuild_exposure_buckets(db)
+        # Rebuild exposure buckets FOR THIS CUSTOMER ONLY
+        buckets_created = await rebuild_exposure_buckets(db, str(current_user.customer_id))
         
         return UploadResponse(
             message=f"Successfully uploaded {rows_processed} purchases",

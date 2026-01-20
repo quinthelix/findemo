@@ -178,25 +178,9 @@ async def fetch_futures_contracts(
         spot_price = float(hist['Close'].iloc[-1])
         logger.info(f"Got spot price for {commodity_name}: ${spot_price:.4f}")
         
-        # Try to get actual futures data (this often fails)
-        # If it fails, generate synthetic futures
-        hist = pdr.DataReader(
-                ticker_info["stooq"],
-                'stooq',
-                datetime.now() - timedelta(days=5),
-                datetime.now()
-            )
-        
-        if hist.empty:
-            logger.error(f"Cannot generate forward curve without spot price for {commodity_name}")
-            return []
-        
-        spot_price = float(hist['Close'].iloc[-1])
-        
         # Generate forward curve with contango (prices slightly higher for longer dated contracts)
-        # This is a simplified model for demo purposes
         contracts = []
-        for months_ahead in [1, 3, 6, 12]:
+        for months_ahead in [1, 3, 6, 12, 18, 24]:
             contract_date = reference_date + relativedelta(months=months_ahead)
             # First day of the contract month
             contract_month = date(contract_date.year, contract_date.month, 1)
@@ -210,8 +194,11 @@ async def fetch_futures_contracts(
         return contracts
         
     except Exception as e:
-        logger.error(f"Error generating futures contracts for {commodity_name}: {e}")
-        return []
+        logger.error(f"Error generating futures contracts for {commodity_name}: {e}, using synthetic data")
+        # Fallback to synthetic data
+        base_prices = {"sugar": 0.50, "flour": 0.35}
+        spot_price = base_prices.get(commodity_name.lower(), 1.0)
+        return await generate_synthetic_futures(commodity_name, spot_price, reference_date)
 
 
 async def refresh_market_data(db: AsyncSession) -> Dict[str, int]:

@@ -26,6 +26,8 @@ class LoginResponse(BaseModel):
     """POST /login response"""
     access_token: str
     token_type: str = "bearer"
+    username: str
+    customer_name: str
 
 
 # Hedge Session Schemas
