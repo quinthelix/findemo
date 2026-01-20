@@ -8,7 +8,10 @@ from app.database import get_db
 from app.models.database import User, Customer
 from app.models.schemas import LoginRequest, LoginResponse
 from app.services.auth_service import verify_password, create_access_token
+from app.services.futures_mock_service import generate_mock_futures
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -51,6 +54,14 @@ async def login(
         "sub": str(user.id),
         "customer_id": str(user.customer_id)
     })
+    
+    # Generate mock futures on login
+    try:
+        await generate_mock_futures(db)
+        logger.info(f"Generated mock futures for user {user.username}")
+    except Exception as e:
+        logger.error(f"Failed to generate futures on login: {e}")
+        # Don't fail login if futures generation fails
     
     return LoginResponse(
         access_token=access_token,

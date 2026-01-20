@@ -17,6 +17,8 @@ import type {
   VarPreviewResponse,
   DataStatusResponse,
   PortfolioResponse,
+  PriceProjectionResponse,
+  FuturesListResponse,
 } from '../types/api';
 
 // Authentication
@@ -125,5 +127,20 @@ export const resetData = async (dataType?: 'purchases' | 'inventory') => {
 // Portfolio (NEW)
 export const getExecutedHedges = async (): Promise<PortfolioResponse> => {
   const response = await apiClient.get<PortfolioResponse>('/portfolio/executed-hedges');
+  return response.data;
+};
+
+// Price Projection (NEW - simpler visualization)
+export const getPriceProjection = async (params?: {
+  start_date?: string;
+  end_date?: string;
+}): Promise<PriceProjectionResponse> => {
+  const response = await apiClient.get<PriceProjectionResponse>('/price-projection/timeline', { params });
+  return response.data;
+};
+
+// Futures List (NEW - for tiles)
+export const getFuturesList = async (): Promise<FuturesListResponse> => {
+  const response = await apiClient.get<FuturesListResponse>('/futures/list');
   return response.data;
 };

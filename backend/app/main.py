@@ -45,7 +45,7 @@ async def health_check():
 
 
 # Import and include routers
-from app.routers import auth, upload, market_data, var, hedge_session, data_management, portfolio
+from app.routers import auth, upload, market_data, var, hedge_session, data_management, portfolio, price_projection, futures
 
 app.include_router(auth.router, tags=["Authentication"])
 app.include_router(upload.router, prefix="/upload", tags=["Upload"])
@@ -54,3 +54,5 @@ app.include_router(var.router, prefix="/var", tags=["VaR"])
 app.include_router(hedge_session.router, prefix="/hedge-session", tags=["Hedge Session"])
 app.include_router(data_management.router, prefix="/data", tags=["Data Management"])
 app.include_router(portfolio.router, prefix="/portfolio", tags=["Portfolio"])
+app.include_router(price_projection.router, prefix="/price-projection", tags=["Price Projection"])
+app.include_router(futures.router, prefix="/futures", tags=["Futures"])

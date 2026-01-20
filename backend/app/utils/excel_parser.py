@@ -46,6 +46,21 @@ def parse_purchases_excel(file_content: bytes) -> List[Dict]:
                 'purchase_price': float(row['purchase_price'])
             }
             
+            # Optional: price_type (default to 'fixed' if not provided)
+            if 'price_type' in df.columns and pd.notna(row['price_type']):
+                price_type = str(row['price_type']).lower().strip()
+                if price_type not in ['fixed', 'floating']:
+                    raise ValueError(f"Invalid price_type '{price_type}'. Must be 'fixed' or 'floating'")
+                purchase['price_type'] = price_type
+            else:
+                purchase['price_type'] = 'fixed'
+            
+            # Optional: payment_date
+            if 'payment_date' in df.columns and pd.notna(row['payment_date']):
+                purchase['payment_date'] = pd.to_datetime(row['payment_date']).date()
+            else:
+                purchase['payment_date'] = None
+            
             # Validate commodity
             if purchase['commodity'] not in ['sugar', 'flour']:
                 raise ValueError(f"Invalid commodity: {purchase['commodity']}. Must be 'sugar' or 'flour'")

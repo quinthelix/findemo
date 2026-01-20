@@ -56,9 +56,16 @@ export interface CommodityVaR {
   portfolio: number;
 }
 
+export interface CommodityCost {
+  sugar: number;
+  flour: number;
+  portfolio: number;
+}
+
 export interface VaRTimelinePoint {
   date: string;
   scenario: Scenario;
+  expected_cost: CommodityCost;
   var: CommodityVaR;
 }
 
@@ -85,6 +92,37 @@ export interface VarPreviewRequest {
 export interface VarPreviewResponse {
   delta_var: CommodityVaR;
   preview_var: CommodityVaR;
+}
+
+// Price Projection Types (NEW - simpler visualization)
+export interface PricePoint {
+  date: string;
+  price: number;
+  high_future: number;
+  low_future: number;
+  is_past: boolean;
+}
+
+export interface CommodityProjection {
+  commodity: Commodity;
+  timeline: PricePoint[];
+}
+
+export interface PriceProjectionResponse {
+  currency: string;
+  projections: CommodityProjection[];
+}
+
+// Futures Contracts Types (NEW - for tiles)
+export interface FutureContract {
+  commodity: string;
+  contract_month: string;  // YYYY-MM-DD
+  price: number;
+  future_type: 'high' | 'low';
+}
+
+export interface FuturesListResponse {
+  futures: FutureContract[];
 }
 
 // Data Status Types (NEW)

@@ -79,10 +79,18 @@ class CommodityVaR(BaseModel):
     portfolio: float
 
 
+class CommodityCost(BaseModel):
+    """Expected cost values for each commodity and portfolio"""
+    sugar: float
+    flour: float
+    portfolio: float
+
+
 class VaRTimelinePoint(BaseModel):
     """Single point in VaR timeline"""
     date: date
     scenario: Scenario
+    expected_cost: CommodityCost
     var: CommodityVaR
 
 

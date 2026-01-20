@@ -4,22 +4,22 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getVaRTimeline, getFuturesContracts, getCurrentHedgeSession, createHedgeSession, addHedgeItem, previewVarImpact } from '../api/endpoints';
-import { VaRTimelineChart } from '../components/VaRTimelineChart';
+import { getPriceProjection, getFuturesList, getCurrentHedgeSession, createHedgeSession, addHedgeItem, previewVarImpact } from '../api/endpoints';
+import { PriceProjectionChart } from '../components/PriceProjectionChart';
 import { MarketPriceChart } from '../components/MarketPriceChart';
-import type { VaRTimelineResponse, FuturesContract, HedgeSessionWithItems, Commodity } from '../types/api';
+import type { PriceProjectionResponse, FutureContract, HedgeSessionWithItems, Commodity } from '../types/api';
 import './ValueAtRiskPage.css';
 
 export const ValueAtRiskPage = () => {
-  const [varData, setVarData] = useState<VaRTimelineResponse | null>(null);
-  const [futures, setFutures] = useState<FuturesContract[]>([]);
+  const [priceData, setPriceData] = useState<PriceProjectionResponse | null>(null);
+  const [futures, setFutures] = useState<FutureContract[]>([]);
   const [hedgeSession, setHedgeSession] = useState<HedgeSessionWithItems | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedFuture, setSelectedFuture] = useState<FuturesContract | null>(null);
-  const [selectedCommodity, setSelectedCommodity] = useState<Commodity | null>(null);
+  const [selectedCommodities, setSelectedCommodities] = useState<Set<Commodity>>(new Set(['sugar', 'flour']));
   const [hoverDate, setHoverDate] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [evaluating, setEvaluating] = useState(false);
+  const [groupBy, setGroupBy] = useState<'commodity' | 'date'>('commodity');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -40,26 +40,21 @@ export const ValueAtRiskPage = () => {
       const startDate = oneYearAgo.toISOString().split('T')[0];
       const endDate = oneYearFuture.toISOString().split('T')[0];
       
-      const [varResponse, futuresResponse] = await Promise.all([
-        getVaRTimeline({
-          confidence_level: 0.95,
+      const [priceResponse, futuresResponse] = await Promise.all([
+        getPriceProjection({
           start_date: startDate,
           end_date: endDate,
         }),
-        getFuturesContracts(),
+        getFuturesList(),
       ]);
 
-      setVarData(varResponse);
-      setFutures(futuresResponse);
-      if (futuresResponse.length > 0) {
-        setSelectedFuture(futuresResponse[0]);
-        // Don't select a commodity by default - wait for user to click
-      }
+      setPriceData(priceResponse);
+      setFutures(futuresResponse.futures);
       
       // Initialize quantities for each future
       const initialQuantities: Record<string, number> = {};
-      futuresResponse.forEach(f => {
-        initialQuantities[`${f.commodity}-${f.contract_month}`] = 1000;
+      futuresResponse.futures.forEach(f => {
+        initialQuantities[`${f.commodity}-${f.contract_month}-${f.future_type}`] = 1000;
       });
       setQuantities(initialQuantities);
 
@@ -76,14 +71,15 @@ export const ValueAtRiskPage = () => {
     }
   };
 
-  const handleEvaluate = async (future: FuturesContract) => {
+  const handleEvaluate = async (future: FutureContract) => {
     setEvaluating(true);
     try {
-      const qty = quantities[`${future.commodity}-${future.contract_month}`] || 0;
+      const key = `${future.commodity}-${future.contract_month}-${future.future_type}`;
+      const qty = quantities[key] || 0;
       
       // Use preview endpoint (non-mutating per AGENTS.md 10.9)
       const preview = await previewVarImpact({
-        commodity: future.commodity,
+        commodity: future.commodity as Commodity,
         contract_month: future.contract_month,
         quantity: qty
       });
@@ -106,8 +102,8 @@ export const ValueAtRiskPage = () => {
     }
   };
 
-  const handleAddToPortfolio = async (future: FuturesContract) => {
-    const key = `${future.commodity}-${future.contract_month}`;
+  const handleAddToPortfolio = async (future: FutureContract) => {
+    const key = `${future.commodity}-${future.contract_month}-${future.future_type}`;
     const qty = quantities[key] || 0;
     
     if (qty === 0) {
@@ -135,24 +131,192 @@ export const ValueAtRiskPage = () => {
     }
   };
 
-  const handleDrop = (future: FuturesContract) => {
-    const key = `${future.commodity}-${future.contract_month}`;
+  const handleDrop = (future: FutureContract) => {
+    const key = `${future.commodity}-${future.contract_month}-${future.future_type}`;
     setQuantities({ ...quantities, [key]: 0 });
   };
 
-  const handleQuantityChange = (future: FuturesContract, newQty: number) => {
-    const key = `${future.commodity}-${future.contract_month}`;
+  const handleQuantityChange = (future: FutureContract, newQty: number) => {
+    const key = `${future.commodity}-${future.contract_month}-${future.future_type}`;
     setQuantities({ ...quantities, [key]: Math.max(0, newQty) });
   };
 
-  const currentVaR = varData?.timeline.find(t => t.scenario === 'without_hedge')?.var.portfolio || 0;
-  const hedgedVaR = varData?.timeline.find(t => t.scenario === 'with_hedge')?.var.portfolio || 0;
-  // const varReduction = currentVaR - hedgedVaR;
-  // const varReductionPercent = currentVaR > 0 ? (varReduction / currentVaR) * 100 : 0;
+  const renderFuturesTiles = () => {
+    if (groupBy === 'commodity') {
+      // Group by commodity
+      const grouped: { [commodity: string]: FutureContract[] } = {};
+      futures.forEach(f => {
+        if (!grouped[f.commodity]) grouped[f.commodity] = [];
+        grouped[f.commodity].push(f);
+      });
+
+      return Object.entries(grouped).map(([commodity, commodityFutures]) => (
+        <div key={commodity} style={{ marginBottom: '1.5rem' }}>
+          <h3 style={{ 
+            color: commodity === 'sugar' ? '#667eea' : '#8b5cf6', 
+            fontSize: '1rem', 
+            fontWeight: 600, 
+            marginBottom: '0.75rem',
+            textTransform: 'uppercase'
+          }}>
+            {commodity}
+          </h3>
+          {commodityFutures
+            .sort((a, b) => new Date(a.contract_month).getTime() - new Date(b.contract_month).getTime())
+            .map(future => renderFutureTile(future))}
+        </div>
+      ));
+    } else {
+      // Group by date
+      const grouped: { [date: string]: FutureContract[] } = {};
+      futures.forEach(f => {
+        if (!grouped[f.contract_month]) grouped[f.contract_month] = [];
+        grouped[f.contract_month].push(f);
+      });
+
+      return Object.entries(grouped)
+        .sort(([dateA], [dateB]) => new Date(dateA).getTime() - new Date(dateB).getTime())
+        .map(([contractMonth, dateFutures]) => (
+          <div key={contractMonth} style={{ marginBottom: '1.5rem' }}>
+            <h3 style={{ 
+              color: '#888', 
+              fontSize: '1rem', 
+              fontWeight: 600, 
+              marginBottom: '0.75rem'
+            }}>
+              {new Date(contractMonth).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+            </h3>
+            {dateFutures
+              .sort((a, b) => a.commodity.localeCompare(b.commodity))
+              .map(future => renderFutureTile(future))}
+          </div>
+        ));
+    }
+  };
+
+  const renderFutureTile = (future: FutureContract) => {
+    const key = `${future.commodity}-${future.contract_month}-${future.future_type}`;
+    const qty = quantities[key] || 0;
+    const commodityColor = future.commodity === 'sugar' ? '#667eea' : '#8b5cf6';
+    const typeColor = future.future_type === 'high' ? '#ef4444' : '#10b981';
+    const typeLabel = future.future_type === 'high' ? 'High' : 'Low';
+
+    return (
+      <div 
+        key={key} 
+        style={{
+          background: 'rgba(255,255,255,0.03)',
+          border: `1px solid ${commodityColor}40`,
+          borderRadius: '8px',
+          padding: '0.75rem',
+          marginBottom: '0.5rem',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ 
+              color: commodityColor, 
+              fontWeight: 600, 
+              fontSize: '0.875rem',
+              textTransform: 'uppercase'
+            }}>
+              {future.commodity}
+            </span>
+            <span style={{
+              background: typeColor + '20',
+              color: typeColor,
+              padding: '0.125rem 0.375rem',
+              borderRadius: '4px',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+            }}>
+              {typeLabel}
+            </span>
+          </div>
+          <span style={{ color: '#fff', fontWeight: 600, fontSize: '0.875rem' }}>
+            ${future.price.toFixed(3)}/lb
+          </span>
+        </div>
+        <div style={{ fontSize: '0.75rem', color: '#888', marginBottom: '0.5rem' }}>
+          Due: {new Date(future.contract_month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <input
+            type="number"
+            value={qty}
+            onChange={(e) => handleQuantityChange(future, parseInt(e.target.value) || 0)}
+            style={{
+              flex: 1,
+              background: 'rgba(0,0,0,0.3)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '4px',
+              padding: '0.375rem',
+              color: '#fff',
+              fontSize: '0.875rem',
+            }}
+            placeholder="Qty"
+            min="0"
+          />
+        </div>
+        <div style={{ display: 'flex', gap: '0.25rem' }}>
+          <button
+            onClick={() => handleEvaluate(future)}
+            disabled={evaluating}
+            style={{
+              flex: 1,
+              background: 'rgba(59, 130, 246, 0.2)',
+              border: '1px solid rgba(59, 130, 246, 0.4)',
+              borderRadius: '4px',
+              padding: '0.375rem',
+              color: '#3b82f6',
+              cursor: evaluating ? 'not-allowed' : 'pointer',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+            }}
+          >
+            ⚡ Eval
+          </button>
+          <button
+            onClick={() => handleAddToPortfolio(future)}
+            style={{
+              flex: 1,
+              background: 'rgba(16, 185, 129, 0.2)',
+              border: '1px solid rgba(16, 185, 129, 0.4)',
+              borderRadius: '4px',
+              padding: '0.375rem',
+              color: '#10b981',
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+            }}
+          >
+            ✓ Add
+          </button>
+          <button
+            onClick={() => handleDrop(future)}
+            style={{
+              flex: 1,
+              background: 'rgba(239, 68, 68, 0.2)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              borderRadius: '4px',
+              padding: '0.375rem',
+              color: '#ef4444',
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+            }}
+          >
+            ✕ Drop
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const currentVaR = 0; // Placeholder - not using VaR anymore
+  const hedgedVaR = 0; // Placeholder - not using VaR anymore
 
   // Generate market price data (mock data - would come from API in production)
-  // CRITICAL: Generate data points for FULL range (including future dates with null prices)
-  // This ensures the chart axis spans the same range as VaR chart
   const generateMarketPriceData = (commodity: Commodity) => {
     const today = new Date();
     const data = [];
@@ -187,7 +351,7 @@ export const ValueAtRiskPage = () => {
     return data;
   };
 
-  const marketPriceData = selectedCommodity ? generateMarketPriceData(selectedCommodity) : [];
+  // Removed - marketPriceData generated inline when needed
   
   // Store the date range for chart alignment
   const today = new Date();
@@ -198,8 +362,14 @@ export const ValueAtRiskPage = () => {
   const chartStartDate = oneYearAgo.toISOString().split('T')[0];
   const chartEndDate = oneYearFuture.toISOString().split('T')[0];
 
-  const handleCommodityClick = (commodity: Commodity) => {
-    setSelectedCommodity(commodity);
+  const handleCommodityToggle = (commodity: Commodity) => {
+    const newSelected = new Set(selectedCommodities);
+    if (newSelected.has(commodity)) {
+      newSelected.delete(commodity);
+    } else {
+      newSelected.add(commodity);
+    }
+    setSelectedCommodities(newSelected);
   };
 
   const handleChartHover = (date: string | null) => {
@@ -235,177 +405,124 @@ export const ValueAtRiskPage = () => {
       <div className="var-content">
         <div className="charts-area">
           <section className="main-chart-section">
-            <h2>Portfolio VaR Timeline</h2>
-            {varData && (
-              <VaRTimelineChart 
-                data={varData} 
-                onCommoditySelect={handleCommodityClick}
-                hoverDate={hoverDate}
-                onHoverChange={handleChartHover}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+              <h2 style={{ margin: 0 }}>Price Projection with Uncertainty</h2>
+              <div style={{ 
+                display: 'flex', 
+                gap: '0.5rem', 
+                alignItems: 'center',
+                background: 'rgba(255,255,255,0.03)',
+                padding: '0.5rem',
+                borderRadius: '8px',
+                border: '1px solid rgba(255,255,255,0.1)',
+              }}>
+                <span style={{ fontSize: '0.875rem', color: '#888', fontWeight: 600, marginRight: '0.5rem' }}>Show:</span>
+                
+                <button
+                  onClick={() => handleCommodityToggle('sugar')}
+                  style={{
+                    background: selectedCommodities.has('sugar') ? 'rgba(102, 126, 234, 0.3)' : 'rgba(255,255,255,0.05)',
+                    border: selectedCommodities.has('sugar') ? '2px solid #667eea' : '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '6px',
+                    padding: '0.5rem 1rem',
+                    color: selectedCommodities.has('sugar') ? '#667eea' : '#888',
+                    cursor: 'pointer',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  Sugar
+                </button>
+                
+                <button
+                  onClick={() => handleCommodityToggle('flour')}
+                  style={{
+                    background: selectedCommodities.has('flour') ? 'rgba(139, 92, 246, 0.3)' : 'rgba(255,255,255,0.05)',
+                    border: selectedCommodities.has('flour') ? '2px solid #8b5cf6' : '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '6px',
+                    padding: '0.5rem 1rem',
+                    color: selectedCommodities.has('flour') ? '#8b5cf6' : '#888',
+                    cursor: 'pointer',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  Flour
+                </button>
+              </div>
+            </div>
+            {priceData && (
+              <PriceProjectionChart 
+                data={priceData} 
+                selectedCommodities={selectedCommodities}
               />
             )}
           </section>
 
-          {selectedCommodity ? (
+          {selectedCommodities.size > 0 && (
             <section className="market-price-section">
-              <MarketPriceChart 
-                commodity={selectedCommodity} 
-                data={marketPriceData}
-                startDate={chartStartDate}
-                endDate={chartEndDate}
-                hoverDate={hoverDate}
-                onHoverChange={handleChartHover}
-              />
-            </section>
-          ) : (
-            <section className="market-price-section">
-              <div style={{
-                padding: '2rem',
-                textAlign: 'center',
-                color: 'rgba(255,255,255,0.5)',
-                fontSize: '0.9375rem'
-              }}>
-                Click on a commodity line in the VaR chart above or a VaR box below to view market prices
+              <h3 style={{ marginBottom: '1rem', fontSize: '1.125rem', fontWeight: 600 }}>Market Prices</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {Array.from(selectedCommodities).map(commodity => (
+                  <MarketPriceChart 
+                    key={commodity}
+                    commodity={commodity} 
+                    data={generateMarketPriceData(commodity)}
+                    startDate={chartStartDate}
+                    endDate={chartEndDate}
+                    hoverDate={hoverDate}
+                    onHoverChange={handleChartHover}
+                  />
+                ))}
               </div>
             </section>
           )}
 
-          <section className="supporting-charts">
-            <div className="chart-card" style={{gridColumn: '1 / -1'}}>
-              <h3>Commodity VaR Breakdown</h3>
-              <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem'}}>
-                <div 
-                  style={{
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center', 
-                    padding: '1rem', 
-                    background: selectedCommodity === 'sugar' ? 'rgba(102, 126, 234, 0.2)' : 'rgba(102, 126, 234, 0.1)', 
-                    borderRadius: '8px', 
-                    border: selectedCommodity === 'sugar' ? '2px solid rgba(102, 126, 234, 0.6)' : '1px solid rgba(102, 126, 234, 0.3)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                  onClick={() => handleCommodityClick('sugar')}
-                >
-                  <span style={{fontSize: '0.9375rem', color: 'rgba(255,255,255,0.8)', fontWeight: 600}}>
-                    Sugar VaR {selectedCommodity === 'sugar' && '◀'}
-                  </span>
-                  <span style={{fontSize: '1.25rem', color: '#ffffff', fontWeight: 700}}>
-                    ${((varData?.timeline[0]?.var.sugar || 0) / 1000).toFixed(0)}K
-                  </span>
-                </div>
-                <div 
-                  style={{
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center', 
-                    padding: '1rem', 
-                    background: selectedCommodity === 'flour' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(139, 92, 246, 0.1)', 
-                    borderRadius: '8px', 
-                    border: selectedCommodity === 'flour' ? '2px solid rgba(139, 92, 246, 0.6)' : '1px solid rgba(139, 92, 246, 0.3)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                  onClick={() => handleCommodityClick('flour')}
-                >
-                  <span style={{fontSize: '0.9375rem', color: 'rgba(255,255,255,0.8)', fontWeight: 600}}>
-                    Flour VaR {selectedCommodity === 'flour' && '◀'}
-                  </span>
-                  <span style={{fontSize: '1.25rem', color: '#ffffff', fontWeight: 700}}>
-                    ${((varData?.timeline[0]?.var.flour || 0) / 1000).toFixed(0)}K
-                  </span>
-                </div>
-                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px'}}>
-                  <span style={{fontSize: '0.875rem', color: 'rgba(255,255,255,0.6)'}}>Correlation (Sugar-Flour)</span>
-                  <span style={{fontSize: '0.9375rem', color: '#ffffff', fontWeight: 600}}>0.65</span>
-                </div>
-              </div>
-            </div>
-          </section>
+          {/* Commodity VaR Breakdown section removed */}
         </div>
 
-        <aside className="futures-sidebar">
-          <h2>Available Futures</h2>
-          
+        {/* Right Sidebar - Futures (30% width) */}
+        <aside className="var-sidebar">
+          <div className="sidebar-header">
+            <h2>Available Futures</h2>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button
+                onClick={() => setGroupBy('commodity')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  background: groupBy === 'commodity' ? 'rgba(102, 126, 234, 0.3)' : 'rgba(255,255,255,0.05)',
+                  border: groupBy === 'commodity' ? '1px solid rgba(102, 126, 234, 0.6)' : '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '4px',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontSize: '0.875rem',
+                  fontWeight: groupBy === 'commodity' ? 600 : 400,
+                }}
+              >
+                By Commodity
+              </button>
+              <button
+                onClick={() => setGroupBy('date')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  background: groupBy === 'date' ? 'rgba(102, 126, 234, 0.3)' : 'rgba(255,255,255,0.05)',
+                  border: groupBy === 'date' ? '1px solid rgba(102, 126, 234, 0.6)' : '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '4px',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontSize: '0.875rem',
+                  fontWeight: groupBy === 'date' ? 600 : 400,
+                }}
+              >
+                By Date
+              </button>
+            </div>
+          </div>
+
           <div className="futures-list">
-            {futures.map((future, idx) => {
-              const key = `${future.commodity}-${future.contract_month}`;
-              const qty = quantities[key] || 1000;
-              
-              return (
-                <div
-                  key={idx}
-                  className={`future-item ${selectedFuture === future ? 'selected' : ''}`}
-                >
-                <div className="future-header">
-                  <span className="future-commodity">{future.commodity.toUpperCase()}</span>
-                  <span className="future-price">
-                    ${future.price.toFixed(2)}/{future.contract_unit_label}
-                  </span>
-                </div>
-
-                <div className="future-meta-row">
-                  <div className="future-date">
-                    <span className="meta-label">Expires:</span>
-                    <span className="meta-value">
-                      {new Date(future.contract_month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-                    </span>
-                  </div>
-                  <div className="future-quantity-inline">
-                    <span className="meta-label">Qty:</span>
-                    <input
-                      type="number"
-                      value={qty}
-                      onChange={(e) => handleQuantityChange(future, Number(e.target.value))}
-                      min="0"
-                      step="100"
-                      onClick={(e) => e.stopPropagation()}
-                      className="quantity-input-inline"
-                    />
-                  </div>
-                </div>
-
-                <div className="future-notional">
-                  Notional: ${(qty * future.price).toLocaleString()}
-                </div>
-
-                  <div className="future-item-buttons">
-                    <button
-                      className="future-btn future-btn-evaluate"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEvaluate(future);
-                      }}
-                      disabled={evaluating}
-                    >
-                      <span className="future-btn-icon">⚡</span>
-                      {evaluating ? 'Eval...' : 'Eval'}
-                    </button>
-                    <button
-                      className="future-btn future-btn-add"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAddToPortfolio(future);
-                      }}
-                    >
-                      <span className="future-btn-icon">✓</span>
-                      Add
-                    </button>
-                    <button
-                      className="future-btn future-btn-drop"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDrop(future);
-                      }}
-                    >
-                      <span className="future-btn-icon">✕</span>
-                      Drop
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+            {renderFuturesTiles()}
           </div>
 
           <button

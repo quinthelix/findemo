@@ -15,7 +15,7 @@ from typing import Dict, List, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.database import (
-    ExposureBucket, MarketPrice, Commodity, HedgeSession, HedgeSessionItem
+    ExposureBucket, MarketPrice, Commodity, HedgeSession, HedgeSessionItem, Purchase
 )
 from app.utils.date_utils import months_until
 import logging
@@ -151,6 +151,82 @@ class VaREngine:
                 exposures[key] = float(bucket.quantity)
         
         return exposures
+    
+    async def get_purchase_risk_info(
+        self,
+        db: AsyncSession,
+        customer_id: str,
+        commodity_ids: List[str],
+        start_date: date,
+        end_date: date,
+        reference_date: date
+    ) -> Dict[Tuple[str, date], Dict]:
+        """
+        Get risk information for each bucket based on source purchases
+        Returns dict: (commodity_id, bucket_month) -> {
+            'has_risk': bool,
+            'price': float,
+            'time_horizon_years': float
+        }
+        """
+        # Get all exposure buckets with their source purchases
+        result = await db.execute(
+            select(ExposureBucket, Purchase)
+            .join(Purchase, ExposureBucket.source_purchase_id == Purchase.id)
+            .where(
+                ExposureBucket.customer_id == customer_id,
+                ExposureBucket.commodity_id.in_(commodity_ids),
+                ExposureBucket.bucket_month >= start_date,
+                ExposureBucket.bucket_month <= end_date
+            )
+        )
+        rows = result.all()
+        
+        bucket_risk_info = {}
+        for bucket, purchase in rows:
+            key = (str(bucket.commodity_id), bucket.bucket_month)
+            
+            # Determine if this purchase has price risk
+            has_risk = False
+            effective_date = bucket.bucket_month  # Default: risk until delivery
+            
+            if purchase.price_type == 'floating':
+                # Floating price: has risk until payment_date (or delivery if no payment_date)
+                if purchase.payment_date:
+                    # Risk until payment date
+                    has_risk = purchase.payment_date > reference_date
+                    effective_date = purchase.payment_date
+                else:
+                    # No payment date set, assume risk until delivery
+                    has_risk = bucket.bucket_month > reference_date
+                    effective_date = bucket.bucket_month
+            else:
+                # Fixed price: no risk
+                has_risk = False
+            
+            # Calculate time horizon for risk (if any)
+            time_horizon_years = 0.0
+            if has_risk and effective_date > reference_date:
+                days_until = (effective_date - reference_date).days
+                time_horizon_years = max(days_until / 365.0, 0.01)  # Minimum 0.01 year
+            
+            # Aggregate if multiple buckets map to same key
+            if key in bucket_risk_info:
+                # If ANY source purchase has risk, the bucket has risk
+                bucket_risk_info[key]['has_risk'] = bucket_risk_info[key]['has_risk'] or has_risk
+                # Use the longest time horizon
+                bucket_risk_info[key]['time_horizon_years'] = max(
+                    bucket_risk_info[key]['time_horizon_years'],
+                    time_horizon_years
+                )
+            else:
+                bucket_risk_info[key] = {
+                    'has_risk': has_risk,
+                    'price': float(purchase.purchase_price),
+                    'time_horizon_years': time_horizon_years
+                }
+        
+        return bucket_risk_info
     
     async def get_hedge_quantities(
         self,
@@ -289,6 +365,12 @@ class VaREngine:
             db, customer_id, commodity_ids, start_date, end_date
         )
         
+        # Get purchase risk information (price_type, payment_date)
+        reference_date = datetime.now().date()
+        purchase_risk_info = await self.get_purchase_risk_info(
+            db, customer_id, commodity_ids, start_date, end_date, reference_date
+        )
+        
         # Get hedges if requested
         hedges = {}
         if include_hedge:
@@ -297,16 +379,16 @@ class VaREngine:
         # Get forward prices
         forward_prices = await self.get_forward_prices(db, commodity_ids, start_date)
         
-        # Build timeline response - calculate VaR for each date based on remaining exposure
+        # Build timeline response - calculate both cost and VaR for each date
         timeline = []
         current_date = start_date
         scenario = "with_hedge" if include_hedge else "without_hedge"
-        reference_date = datetime.now().date()
         
         # Generate monthly timeline from start to end
         while current_date <= end_date:
-            # Calculate VaR for this specific date (only buckets >= current_date)
+            # Calculate VaR AND cost for this specific date (only buckets >= current_date)
             bucket_vars_by_commodity = {cid: [] for cid in commodity_ids}
+            bucket_costs_by_commodity = {cid: 0.0 for cid in commodity_ids}
             
             # Process each exposure bucket that's still in the future from current_date
             for (commodity_id, bucket_month), exposure_qty in exposures.items():
@@ -318,42 +400,51 @@ class VaREngine:
                 hedge_qty = hedges.get((commodity_id, bucket_month), 0)
                 net_exposure = exposure_qty - hedge_qty
                 
-                # Get forward price
+                # Get risk info for this bucket
+                risk_info = purchase_risk_info.get((commodity_id, bucket_month), {
+                    'has_risk': True,  # Default: assume risk
+                    'price': 0.5,
+                    'time_horizon_years': 1.0
+                })
+                
+                # Get forward price for cost calculation
                 forward_price = forward_prices.get((commodity_id, bucket_month))
                 if not forward_price:
-                    # Use latest spot price as fallback
-                    result = await db.execute(
-                        select(MarketPrice)
-                        .where(
-                            MarketPrice.commodity_id == commodity_id,
-                            MarketPrice.contract_month.is_(None)
-                        )
-                        .order_by(MarketPrice.price_date.desc())
-                        .limit(1)
+                    # Use purchase price as fallback
+                    forward_price = risk_info.get('price', 0.5)
+                
+                # EXPECTED COST: always calculated (price × quantity)
+                bucket_cost = forward_price * abs(net_exposure)
+                bucket_costs_by_commodity[commodity_id] += bucket_cost
+                
+                # VAR: only calculated if purchase has risk
+                if risk_info.get('has_risk', True):
+                    # Get time horizon (use from risk_info or calculate)
+                    time_horizon_years = risk_info.get('time_horizon_years')
+                    if not time_horizon_years or time_horizon_years <= 0:
+                        # Calculate from current_date to bucket_month as fallback
+                        time_horizon_years = months_until(current_date, bucket_month) / 12.0
+                        if time_horizon_years < 0.01:
+                            time_horizon_years = 0.01
+                    
+                    # Calculate bucket VaR
+                    volatility = volatilities.get(commodity_id, 0.15)
+                    bucket_var = self.calculate_bucket_var(
+                        volatility,
+                        forward_price,
+                        net_exposure,
+                        time_horizon_years
                     )
-                    price_record = result.scalar_one_or_none()
-                    forward_price = float(price_record.price) if price_record else 0.5
-                
-                # Calculate time horizon from current_date to bucket_month
-                time_horizon_years = months_until(current_date, bucket_month) / 12.0
-                if time_horizon_years < 0.01:
-                    time_horizon_years = 0.01  # Minimum 0.01 year
-                
-                # Calculate bucket VaR
-                volatility = volatilities.get(commodity_id, 0.15)
-                bucket_var = self.calculate_bucket_var(
-                    volatility,
-                    forward_price,
-                    net_exposure,
-                    time_horizon_years
-                )
-                
-                bucket_vars_by_commodity[commodity_id].append(bucket_var)
+                    bucket_vars_by_commodity[commodity_id].append(bucket_var)
+                # else: VaR = 0 for fixed-price, already-paid orders
             
-            # Calculate commodity-level VaRs for this date
+            # Calculate commodity-level VaRs and costs for this date
             commodity_vars = []
             commodity_var_dict = {}
+            commodity_cost_dict = {}
+            
             for commodity_id in commodity_ids:
+                # VaR aggregation
                 bucket_vars = bucket_vars_by_commodity[commodity_id]
                 if bucket_vars:
                     commodity_var = self.calculate_commodity_var(bucket_vars)
@@ -361,13 +452,22 @@ class VaREngine:
                     commodity_var = 0.0
                 commodity_vars.append(commodity_var)
                 commodity_var_dict[commodity_names[commodity_id]] = commodity_var
+                
+                # Cost aggregation (simple sum)
+                commodity_cost_dict[commodity_names[commodity_id]] = bucket_costs_by_commodity[commodity_id]
             
-            # Calculate portfolio VaR for this date
+            # Calculate portfolio VaR and cost for this date
             portfolio_var = self.calculate_portfolio_var(commodity_vars, correlation_matrix)
+            portfolio_cost = sum(bucket_costs_by_commodity.values())
             
             timeline.append({
                 "date": current_date,
                 "scenario": scenario,
+                "expected_cost": {
+                    "sugar": commodity_cost_dict.get("sugar", 0),
+                    "flour": commodity_cost_dict.get("flour", 0),
+                    "portfolio": portfolio_cost
+                },
                 "var": {
                     "sugar": commodity_var_dict.get("sugar", 0),
                     "flour": commodity_var_dict.get("flour", 0),

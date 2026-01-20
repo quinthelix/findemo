@@ -70,7 +70,9 @@ async def upload_purchases(
                 delivery_end_date=purchase_data['delivery_end_date'],
                 quantity=purchase_data['quantity'],
                 unit=purchase_data['unit'],
-                purchase_price=purchase_data['purchase_price']
+                purchase_price=purchase_data['purchase_price'],
+                price_type=purchase_data.get('price_type', 'fixed'),
+                payment_date=purchase_data.get('payment_date')
             )
             db.add(purchase)
             rows_processed += 1

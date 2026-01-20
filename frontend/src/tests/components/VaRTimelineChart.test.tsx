@@ -13,21 +13,25 @@ const mockData: VaRTimelineResponse = {
     {
       date: '2026-01-01',
       scenario: 'without_hedge',
+      expected_cost: { sugar: 500000, flour: 400000, portfolio: 900000 },
       var: { sugar: 100000, flour: 80000, portfolio: 150000 },
     },
     {
       date: '2026-01-01',
       scenario: 'with_hedge',
+      expected_cost: { sugar: 500000, flour: 400000, portfolio: 900000 },
       var: { sugar: 60000, flour: 70000, portfolio: 100000 },
     },
     {
       date: '2026-06-01',
       scenario: 'without_hedge',
+      expected_cost: { sugar: 520000, flour: 410000, portfolio: 930000 },
       var: { sugar: 120000, flour: 90000, portfolio: 170000 },
     },
     {
       date: '2026-06-01',
       scenario: 'with_hedge',
+      expected_cost: { sugar: 520000, flour: 410000, portfolio: 930000 },
       var: { sugar: 70000, flour: 75000, portfolio: 110000 },
     },
   ],

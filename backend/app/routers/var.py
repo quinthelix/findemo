@@ -9,7 +9,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.database import User
 from app.models.schemas import (
-    VaRTimelineResponse, VaRTimelinePoint, CommodityVaR,
+    VaRTimelineResponse, VaRTimelinePoint, CommodityVaR, CommodityCost,
     VarPreviewRequest, VarPreviewResponse
 )
 from app.services.var_engine import VaREngine
@@ -73,6 +73,11 @@ async def get_var_timeline(
                 VaRTimelinePoint(
                     date=point["date"],
                     scenario=point["scenario"],
+                    expected_cost=CommodityCost(
+                        sugar=point["expected_cost"]["sugar"],
+                        flour=point["expected_cost"]["flour"],
+                        portfolio=point["expected_cost"]["portfolio"]
+                    ),
                     var=CommodityVaR(
                         sugar=point["var"]["sugar"],
                         flour=point["var"]["flour"],

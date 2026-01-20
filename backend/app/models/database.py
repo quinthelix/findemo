@@ -66,6 +66,8 @@ class Purchase(Base):
     quantity = Column(Numeric(15, 3), nullable=False)
     unit = Column(String(20), nullable=False)
     purchase_price = Column(Numeric(15, 2), nullable=False)
+    price_type = Column(String(10), default='fixed')  # 'fixed' or 'floating'
+    payment_date = Column(Date, nullable=True)  # When price is locked/paid
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     __table_args__ = (

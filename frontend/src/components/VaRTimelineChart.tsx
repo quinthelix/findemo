@@ -5,15 +5,15 @@
  * Lines are clickable to select commodity for market price chart
  */
 import {
-  LineChart,
   Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   ReferenceLine,
+  Area,
+  ComposedChart,
 } from 'recharts';
 import type { VaRTimelineResponse } from '../types/api';
 import type { Commodity } from '../types/api';
@@ -31,30 +31,59 @@ export const VaRTimelineChart = ({ data, onCommoditySelect, hoverDate, onHoverCh
       onCommoditySelect(commodity);
     }
   };
-  // Transform data for Recharts - now with commodity-specific lines
+  // Transform data for Recharts - calculate upper/lower bounds with time-growing VaR
+  const todayDate = new Date().toISOString().split('T')[0];
+  const todayTime = new Date(todayDate).getTime();
+  
   const chartData = data.timeline.reduce((acc, point) => {
     const existing = acc.find((item) => item.date === point.date);
     
+    // Calculate time horizon in years from today
+    const pointTime = new Date(point.date).getTime();
+    const daysFromToday = (pointTime - todayTime) / (1000 * 60 * 60 * 24);
+    const yearsFromToday = daysFromToday / 365;
+    
+    // ONLY apply synthetic VaR for FUTURE dates (> today)
+    let syntheticVarGrowth = 0;
+    if (yearsFromToday > 0) {
+      // VaR grows with sqrt(time) for future dates only
+      syntheticVarGrowth = Math.sqrt(yearsFromToday);
+    }
+    // Past dates (yearsFromToday <= 0) get syntheticVarGrowth = 0 (no uncertainty)
+    
     if (existing) {
       if (point.scenario === 'without_hedge') {
-        existing.portfolioWithout = point.var.portfolio;
-        existing.sugarWithout = point.var.sugar;
-        existing.flourWithout = point.var.flour;
-      } else {
-        existing.portfolioWith = point.var.portfolio;
-        existing.sugarWith = point.var.sugar;
-        existing.flourWith = point.var.flour;
+        // Use actual VaR if > 0, otherwise use synthetic ONLY for future
+        const sugarVar = point.var.sugar > 0 ? point.var.sugar : point.expected_cost.sugar * 0.15 * syntheticVarGrowth;
+        const flourVar = point.var.flour > 0 ? point.var.flour : point.expected_cost.flour * 0.15 * syntheticVarGrowth;
+        
+        // Sugar bounds
+        existing.sugarCost = point.expected_cost.sugar;
+        existing.sugarVar = sugarVar;
+        existing.sugarUpper = point.expected_cost.sugar + sugarVar;
+        existing.sugarLower = Math.max(0, point.expected_cost.sugar - sugarVar);
+        
+        // Flour bounds
+        existing.flourCost = point.expected_cost.flour;
+        existing.flourVar = flourVar;
+        existing.flourUpper = point.expected_cost.flour + flourVar;
+        existing.flourLower = Math.max(0, point.expected_cost.flour - flourVar);
       }
     } else {
       const newPoint: any = { date: point.date };
       if (point.scenario === 'without_hedge') {
-        newPoint.portfolioWithout = point.var.portfolio;
-        newPoint.sugarWithout = point.var.sugar;
-        newPoint.flourWithout = point.var.flour;
-      } else {
-        newPoint.portfolioWith = point.var.portfolio;
-        newPoint.sugarWith = point.var.sugar;
-        newPoint.flourWith = point.var.flour;
+        const sugarVar = point.var.sugar > 0 ? point.var.sugar : point.expected_cost.sugar * 0.15 * syntheticVarGrowth;
+        const flourVar = point.var.flour > 0 ? point.var.flour : point.expected_cost.flour * 0.15 * syntheticVarGrowth;
+        
+        newPoint.sugarCost = point.expected_cost.sugar;
+        newPoint.sugarVar = sugarVar;
+        newPoint.sugarUpper = point.expected_cost.sugar + sugarVar;
+        newPoint.sugarLower = Math.max(0, point.expected_cost.sugar - sugarVar);
+        
+        newPoint.flourCost = point.expected_cost.flour;
+        newPoint.flourVar = flourVar;
+        newPoint.flourUpper = point.expected_cost.flour + flourVar;
+        newPoint.flourLower = Math.max(0, point.expected_cost.flour - flourVar);
       }
       acc.push(newPoint);
     }
@@ -135,8 +164,23 @@ export const VaRTimelineChart = ({ data, onCommoditySelect, hoverDate, onHoverCh
 
   return (
     <div className="var-chart">
+      <h3 style={{ 
+        color: 'rgba(255, 255, 255, 0.9)', 
+        fontSize: '18px', 
+        marginBottom: '16px',
+        fontWeight: 600
+      }}>
+        Sugar & Flour Cost with Uncertainty
+      </h3>
+      <p style={{ 
+        color: 'rgba(255, 255, 255, 0.6)', 
+        fontSize: '13px', 
+        marginBottom: '12px'
+      }}>
+        Past: Known costs (no uncertainty). Future: Uncertainty grows with time (√T). Blue = Sugar, Purple = Flour.
+      </p>
       <ResponsiveContainer width="100%" height={400}>
-        <LineChart 
+        <ComposedChart 
           data={chartData} 
           margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
           onMouseMove={handleMouseMove}
@@ -193,85 +237,100 @@ export const VaRTimelineChart = ({ data, onCommoditySelect, hoverDate, onHoverCh
             />
           )}
           
-          {/* Portfolio VaR - Red (without) / Green (with) */}
+          {/* Sugar - Upper bound line */}
           <Line
             type="monotone"
-            dataKey="portfolioWithout"
-            stroke="#ff6b6b"
-            strokeWidth={3}
-            name="Portfolio (No Hedge)"
-            dot={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="portfolioWith"
-            stroke="#51cf66"
-            strokeWidth={3}
-            strokeDasharray="5 5"
-            name="Portfolio (Hedged)"
-            dot={false}
-          />
-          
-          {/* Sugar VaR - Blue - Clickable */}
-          <Line
-            type="monotone"
-            dataKey="sugarWithout"
-            stroke="#667eea"
+            dataKey="sugarUpper"
+            stroke="#3b82f6"
             strokeWidth={2}
-            name="Sugar (No Hedge)"
-            dot={false}
-            onClick={() => handleLineClick('sugar')}
-            style={{ cursor: 'pointer' }}
-          />
-          <Line
-            type="monotone"
-            dataKey="sugarWith"
-            stroke="#667eea"
-            strokeWidth={2}
-            strokeDasharray="5 5"
-            name="Sugar (Hedged)"
+            name="Sugar Upper (Cost + VaR)"
             dot={false}
             onClick={() => handleLineClick('sugar')}
             style={{ cursor: 'pointer' }}
           />
           
-          {/* Flour VaR - Purple - Clickable */}
+          {/* Sugar - Lower bound line */}
           <Line
             type="monotone"
-            dataKey="flourWithout"
-            stroke="#8b5cf6"
+            dataKey="sugarLower"
+            stroke="#3b82f6"
             strokeWidth={2}
-            name="Flour (No Hedge)"
+            name="Sugar Lower (Cost - VaR)"
+            dot={false}
+            onClick={() => handleLineClick('sugar')}
+            style={{ cursor: 'pointer' }}
+          />
+          
+          {/* Sugar - Shaded area between bounds */}
+          <Area
+            type="monotone"
+            dataKey="sugarUpper"
+            stroke="none"
+            fill="#3b82f6"
+            fillOpacity={0.2}
+            name="Sugar Uncertainty"
+          />
+          <Area
+            type="monotone"
+            dataKey="sugarLower"
+            stroke="none"
+            fill="#ffffff"
+            fillOpacity={1}
+            name=""
+          />
+          
+          {/* Flour - Upper bound line */}
+          <Line
+            type="monotone"
+            dataKey="flourUpper"
+            stroke="#a855f7"
+            strokeWidth={2}
+            name="Flour Upper (Cost + VaR)"
             dot={false}
             onClick={() => handleLineClick('flour')}
             style={{ cursor: 'pointer' }}
           />
+          
+          {/* Flour - Lower bound line */}
           <Line
             type="monotone"
-            dataKey="flourWith"
-            stroke="#8b5cf6"
+            dataKey="flourLower"
+            stroke="#a855f7"
             strokeWidth={2}
-            strokeDasharray="5 5"
-            name="Flour (Hedged)"
+            name="Flour Lower (Cost - VaR)"
             dot={false}
             onClick={() => handleLineClick('flour')}
             style={{ cursor: 'pointer' }}
           />
-        </LineChart>
+          
+          {/* Flour - Shaded area between bounds */}
+          <Area
+            type="monotone"
+            dataKey="flourUpper"
+            stroke="none"
+            fill="#a855f7"
+            fillOpacity={0.2}
+            name="Flour Uncertainty"
+          />
+          <Area
+            type="monotone"
+            dataKey="flourLower"
+            stroke="none"
+            fill="#ffffff"
+            fillOpacity={1}
+            name=""
+          />
+        </ComposedChart>
       </ResponsiveContainer>
 
       <div className="var-legend-details">
         <div className="legend-item">
-          <span className="legend-color portfolio"></span>
-          <span>Portfolio VaR (Red/Green)</span>
-        </div>
-        <div className="legend-item">
           <span className="legend-color sugar"></span>
-          <span>Sugar VaR (Blue)</span>
+          <span>Sugar (Blue): Upper/Lower bounds with shaded uncertainty</span>
         </div>
         <div className="legend-item">
           <span className="legend-color flour"></span>
-          <span>Flour VaR (Purple)</span>
+          <span>Flour (Purple): Upper/Lower bounds with shaded uncertainty</span>
         </div>
       </div>
 
