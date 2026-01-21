@@ -13,16 +13,77 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-async def generate_mock_futures(db: AsyncSession, customer_id: str = None) -> Dict[str, int]:
+async def check_futures_freshness(db: AsyncSession, customer_id: str = None) -> bool:
     """
-    Generate mock futures for all commodities
-    Creates 1M, 3M, 6M, 9M, 12M futures with:
+    Check if existing futures are fresh (created today) AND customer has data
+    Returns True if futures need regeneration or deletion
+    
+    Args:
+        customer_id: Customer to check purchases for (if provided)
+    
+    Returns:
+        True if futures need regeneration or deletion
+    """
+    from app.models.database import Purchase
+    from sqlalchemy import func
+    
+    today = date.today()
+    
+    # Check if futures exist
+    result = await db.execute(
+        select(MarketPrice.price_date)
+        .where(MarketPrice.source.in_(['mock_futures_high', 'mock_futures_low']))
+        .limit(1)
+    )
+    price_date = result.scalar_one_or_none()
+    
+    if not price_date:
+        # No futures exist
+        return True
+    
+    # Check if customer has purchases (if customer_id provided)
+    if customer_id:
+        purchase_count_result = await db.execute(
+            select(func.count(Purchase.id))
+            .where(Purchase.customer_id == customer_id)
+        )
+        purchase_count = purchase_count_result.scalar_one()
+        
+        if purchase_count == 0:
+            # Customer has no purchases, futures should be cleared
+            return True
+    
+    # Check if futures were created today
+    return price_date != today
+
+
+async def generate_mock_futures(db: AsyncSession, customer_id: str = None, force: bool = False) -> Dict[str, int]:
+    """
+    Generate mock futures ONLY for commodities with purchase history
+    Creates 1M, 3M, 6M, 9M, 12M futures FROM TODAY
+    
     - Low-price futures: decreasing price, increasing cost
     - High-price futures: increasing price, decreasing cost
+    
+    Args:
+        customer_id: Required to base futures on actual purchase data
+        force: If False, only regenerate if futures are stale (default behavior)
     
     Returns count of futures created
     """
     from app.models.database import Purchase
+    from sqlalchemy import func
+    
+    if not customer_id:
+        logger.warning("Cannot generate futures without customer_id")
+        return {"futures_created": 0}
+    
+    # Check if regeneration is needed (unless forced)
+    if not force:
+        needs_regen = await check_futures_freshness(db)
+        if not needs_regen:
+            logger.info("Futures are fresh, skipping regeneration")
+            return {"futures_created": 0, "skipped": True}
     
     # Clear existing mock futures (both high and low)
     await db.execute(
@@ -32,47 +93,49 @@ async def generate_mock_futures(db: AsyncSession, customer_id: str = None) -> Di
     )
     await db.commit()
     
-    # Get all commodities
-    result = await db.execute(select(Commodity))
-    commodities = result.scalars().all()
+    # Get ONLY commodities that this customer has purchased
+    # Group by commodity and get average price
+    purchases_result = await db.execute(
+        select(
+            Purchase.commodity_id,
+            func.avg(Purchase.purchase_price).label('avg_price'),
+            func.count(Purchase.id).label('purchase_count')
+        )
+        .where(Purchase.customer_id == customer_id)
+        .group_by(Purchase.commodity_id)
+    )
+    purchase_data = purchases_result.all()
     
-    if not commodities:
-        logger.warning("No commodities found in database")
-        return {"futures_created": 0}
+    if not purchase_data:
+        logger.info(f"No purchases found for customer {customer_id}, futures cleared")
+        return {"futures_created": 0, "cleared": True}
     
-    # Calculate base prices from recent purchase history (if customer provided)
+    # Get commodity details for these purchases
+    commodity_ids = [p.commodity_id for p in purchase_data]
+    commodities_result = await db.execute(
+        select(Commodity).where(Commodity.id.in_(commodity_ids))
+    )
+    commodities = {c.id: c for c in commodities_result.scalars().all()}
+    
+    # Build base prices from actual purchase history
     base_prices = {}
-    for commodity in commodities:
-        if customer_id:
-            # Get recent purchases to determine realistic base price
-            purchases_result = await db.execute(
-                select(Purchase)
-                .where(
-                    Purchase.customer_id == customer_id,
-                    Purchase.commodity_id == commodity.id
-                )
-                .order_by(Purchase.purchase_date.desc())
-                .limit(3)
+    for purchase_row in purchase_data:
+        commodity = commodities.get(purchase_row.commodity_id)
+        if commodity:
+            base_prices[purchase_row.commodity_id] = float(purchase_row.avg_price)
+            logger.info(
+                f"Commodity {commodity.name}: base price ${purchase_row.avg_price:.2f} "
+                f"from {purchase_row.purchase_count} purchases"
             )
-            purchases = purchases_result.scalars().all()
-            
-            if purchases:
-                # Average of last 3 purchase prices
-                avg_price = sum(float(p.purchase_price) for p in purchases) / len(purchases)
-                base_prices[commodity.name.lower()] = avg_price
-            else:
-                # Fallback defaults
-                base_prices[commodity.name.lower()] = 20.0 if commodity.name.lower() == 'sugar' else 15.0
-        else:
-            # Fallback defaults
-            base_prices[commodity.name.lower()] = 20.0 if commodity.name.lower() == 'sugar' else 15.0
     
     today = date.today()
     futures_created = 0
     
-    for commodity in commodities:
-        commodity_name = commodity.name.lower()
-        base_price = base_prices.get(commodity_name, 10.0)
+    # Generate futures ONLY for commodities with purchase history
+    for commodity_id, base_price in base_prices.items():
+        commodity = commodities.get(commodity_id)
+        if not commodity:
+            continue
         
         # Future durations in months
         durations = [1, 3, 6, 9, 12]

@@ -13,7 +13,9 @@ from app.models.schemas import UploadResponse
 from app.utils.excel_parser import parse_purchases_excel, parse_inventory_excel
 from app.services.exposure_service import rebuild_exposure_buckets
 from app.services.futures_mock_service import generate_mock_futures
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -83,8 +85,9 @@ async def upload_purchases(
         # Rebuild exposure buckets FOR THIS CUSTOMER ONLY
         buckets_created = await rebuild_exposure_buckets(db, str(current_user.customer_id))
         
-        # Regenerate mock futures with new purchase data
-        await generate_mock_futures(db, customer_id=str(current_user.customer_id))
+        # Regenerate mock futures with new purchase data (force regeneration)
+        result = await generate_mock_futures(db, customer_id=str(current_user.customer_id), force=True)
+        logger.info(f"Generated {result.get('futures_created', 0)} futures after purchase upload")
         
         return UploadResponse(
             message=f"Successfully uploaded {rows_processed} purchases",

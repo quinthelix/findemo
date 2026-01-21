@@ -158,6 +158,7 @@ class HedgeSessionItem(Base):
     hedge_session_id = Column(UUID(as_uuid=True), ForeignKey("hedge_sessions.id", ondelete="CASCADE"), nullable=False)
     commodity_id = Column(UUID(as_uuid=True), ForeignKey("commodities.id", ondelete="CASCADE"), nullable=False)
     contract_month = Column(Date, nullable=False)
+    future_type = Column(String(10), nullable=False)  # 'high' or 'low'
     quantity = Column(Numeric(15, 3), nullable=False)
     price_snapshot = Column(Numeric(15, 2), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -165,6 +166,7 @@ class HedgeSessionItem(Base):
     __table_args__ = (
         CheckConstraint("quantity > 0", name="check_hedge_item_quantity_positive"),
         CheckConstraint("price_snapshot > 0", name="check_hedge_item_price_positive"),
+        CheckConstraint("future_type IN ('high', 'low')", name="check_future_type_valid"),
     )
     
     hedge_session = relationship("HedgeSession", back_populates="items")

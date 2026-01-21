@@ -55,6 +55,7 @@ async def create_hedge_session(
     
     # Create new session
     session = HedgeSession(
+        customer_id=current_user.customer_id,
         user_id=current_user.id,
         status='active'
     )
@@ -96,6 +97,7 @@ async def get_current_session(
         items.append(HedgeSessionItemSchema(
             commodity=commodity.name,
             contract_month=item.contract_month,
+            future_type=item.future_type,
             quantity=float(item.quantity),
             price_snapshot=float(item.price_snapshot)
         ))
@@ -128,7 +130,11 @@ async def add_hedge_item(
     
     if not session:
         # Create new session
-        session = HedgeSession(user_id=current_user.id, status='active')
+        session = HedgeSession(
+            customer_id=current_user.customer_id,
+            user_id=current_user.id,
+            status='active'
+        )
         db.add(session)
         await db.flush()
     
@@ -156,18 +162,19 @@ async def add_hedge_item(
             detail=f"No price found for {item_data.commodity} contract {item_data.contract_month}"
         )
     
-    # Check if item already exists
+    # Check if item already exists (commodity + contract_month + future_type = unique)
     result = await db.execute(
         select(HedgeSessionItem).where(
             HedgeSessionItem.hedge_session_id == session.id,
             HedgeSessionItem.commodity_id == commodity.id,
-            HedgeSessionItem.contract_month == item_data.contract_month
+            HedgeSessionItem.contract_month == item_data.contract_month,
+            HedgeSessionItem.future_type == item_data.future_type
         )
     )
     existing_item = result.scalar_one_or_none()
     
     if existing_item:
-        # Update quantity
+        # Update quantity and price
         existing_item.quantity = item_data.quantity
         existing_item.price_snapshot = float(market_price.price)
         await db.commit()
@@ -179,6 +186,7 @@ async def add_hedge_item(
             hedge_session_id=session.id,
             commodity_id=commodity.id,
             contract_month=item_data.contract_month,
+            future_type=item_data.future_type,
             quantity=item_data.quantity,
             price_snapshot=float(market_price.price)
         )
@@ -189,15 +197,17 @@ async def add_hedge_item(
     return HedgeSessionItemSchema(
         commodity=commodity.name,
         contract_month=item.contract_month,
+        future_type=item.future_type,
         quantity=float(item.quantity),
         price_snapshot=float(item.price_snapshot)
     )
 
 
-@router.post("/update/{commodity}/{contract_month}", response_model=HedgeSessionItemSchema)
+@router.post("/update/{commodity}/{contract_month}/{future_type}", response_model=HedgeSessionItemSchema)
 async def update_hedge_item(
     commodity: str,
     contract_month: date,
+    future_type: str,
     update_data: HedgeSessionItemUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -231,7 +241,8 @@ async def update_hedge_item(
         select(HedgeSessionItem).where(
             HedgeSessionItem.hedge_session_id == session.id,
             HedgeSessionItem.commodity_id == commodity_obj.id,
-            HedgeSessionItem.contract_month == contract_month
+            HedgeSessionItem.contract_month == contract_month,
+            HedgeSessionItem.future_type == future_type
         )
     )
     item = result.scalar_one_or_none()
@@ -247,15 +258,17 @@ async def update_hedge_item(
     return HedgeSessionItemSchema(
         commodity=commodity,
         contract_month=item.contract_month,
+        future_type=item.future_type,
         quantity=float(item.quantity),
         price_snapshot=float(item.price_snapshot)
     )
 
 
-@router.delete("/remove/{commodity}/{contract_month}")
+@router.delete("/remove/{commodity}/{contract_month}/{future_type}")
 async def remove_hedge_item(
     commodity: str,
     contract_month: date,
+    future_type: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -288,7 +301,8 @@ async def remove_hedge_item(
         select(HedgeSessionItem).where(
             HedgeSessionItem.hedge_session_id == session.id,
             HedgeSessionItem.commodity_id == commodity_obj.id,
-            HedgeSessionItem.contract_month == contract_month
+            HedgeSessionItem.contract_month == contract_month,
+            HedgeSessionItem.future_type == future_type
         )
     )
     item = result.scalar_one_or_none()

@@ -52,23 +52,38 @@ class FuturesGenerationResponse(BaseModel):
 
 @router.post("/generate-futures", response_model=FuturesGenerationResponse)
 async def generate_futures(
+    force: bool = False,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Generate mock futures for all commodities
-    Called automatically on login
+    Generate/regenerate mock futures from today
     
-    Creates 1M, 3M, 6M, 9M, 12M futures with:
+    Creates 1M, 3M, 6M, 9M, 12M futures FROM TODAY with:
     - Low-price futures: decreasing price over time
     - High-price futures: increasing price over time
+    
+    Query params:
+    - force: If true, regenerate even if futures are fresh (default: false)
     """
     try:
-        result = await generate_mock_futures(db)
+        result = await generate_mock_futures(
+            db, 
+            customer_id=str(current_user.customer_id),
+            force=force
+        )
+        
+        if result.get("skipped"):
+            return FuturesGenerationResponse(
+                status="skipped",
+                futures_created=0,
+                message="Futures are already fresh (created today)"
+            )
+        
         return FuturesGenerationResponse(
             status="success",
             futures_created=result["futures_created"],
-            message=f"Generated {result['futures_created']} mock futures"
+            message=f"Generated {result['futures_created']} mock futures from today"
         )
     except Exception as e:
         logger.error(f"Error generating futures: {e}")
@@ -189,12 +204,13 @@ async def _calculate_price_projection(
             )
             purchases = purchases_result.scalars().all()
             
-            # Calculate baseline current price (average of recent purchases or default)
-            if purchases:
-                baseline_price = float(sum(p.purchase_price for p in purchases[-3:]) / min(3, len(purchases)))
-            else:
-                # Default prices
-                baseline_price = 20.0 if commodity_name == "sugar" else 15.0
+            # Skip commodities with no purchase history
+            if not purchases:
+                logger.info(f"Skipping {commodity_name} - no purchase history")
+                continue
+            
+            # Calculate baseline current price (average of recent purchases)
+            baseline_price = float(sum(p.purchase_price for p in purchases[-3:]) / min(3, len(purchases)))
             
             # Build monthly purchase volume map
             # Aggregate quantity for each delivery month
@@ -224,8 +240,12 @@ async def _calculate_price_projection(
                         current_month = date(current_month.year, current_month.month + 1, 1)
             
             # For future months, estimate volume based on recent average
+            # Only calculate if we have actual purchase data
             recent_volumes = list(purchase_volumes.values())[-3:] if purchase_volumes else []
-            avg_future_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 1000.0
+            if not recent_volumes:
+                logger.warning(f"No purchase volumes for {commodity_name}, skipping projection")
+                continue
+            avg_future_volume = sum(recent_volumes) / len(recent_volumes)
             
             # Build timeline
             timeline = []

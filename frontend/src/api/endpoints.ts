@@ -71,8 +71,8 @@ export const updateHedgeItem = async (
   return response.data;
 };
 
-export const removeHedgeItem = async (commodity: string, contractMonth: string) => {
-  const response = await apiClient.delete(`/hedge-session/remove/${commodity}/${contractMonth}`);
+export const removeHedgeItem = async (commodity: string, contractMonth: string, futureType: 'high' | 'low') => {
+  const response = await apiClient.delete(`/hedge-session/remove/${commodity}/${contractMonth}/${futureType}`);
   return response.data;
 };
 

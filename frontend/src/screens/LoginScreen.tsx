@@ -8,8 +8,8 @@ import { login } from '../api/endpoints';
 import './LoginScreen.css';
 
 export const LoginScreen = () => {
-  const [username, setUsername] = useState('demo');
-  const [password, setPassword] = useState('demo123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();

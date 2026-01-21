@@ -64,14 +64,47 @@ export const ValueAtRiskPage = () => {
       futuresResponse.futures.forEach(f => {
         initialQuantities[`${f.commodity}-${f.contract_month}-${f.future_type}`] = Math.round(f.suggested_quantity);
       });
-      setQuantities(initialQuantities);
+      
+      // Store initial quantities for reset purposes
+      const initialQtyCopy = { ...initialQuantities };
 
+      // Load existing hedge session to sync tiles with cart
       try {
         const session = await getCurrentHedgeSession();
         setHedgeSession(session);
-      } catch {
+        
+        // Mark items in cart and update quantities/checkboxes
+        const cartItems = new Set<string>();
+        const checkedItems = new Set<string>();
+        
+        session.items.forEach(item => {
+          // Direct match by commodity + contract_month + future_type
+          const key = `${item.commodity}-${item.contract_month}-${item.future_type}`;
+          
+          // Mark this specific tile as in cart
+          cartItems.add(key);
+          checkedItems.add(key);
+          initialQuantities[key] = item.quantity;
+          
+          console.log(`Cart item: ${item.commodity} ${item.contract_month} ${item.future_type} = ${item.quantity} units`);
+        });
+        
+        setCartFutures(cartItems);
+        setCheckedFutures(checkedItems);
+        setQuantities(initialQuantities);
+        
+        console.log('Loaded cart with', session.items.length, 'items - synced to tiles');
+      } catch (err: any) {
+        // No active session yet - use initial values
         setHedgeSession(null);
+        setQuantities(initialQuantities);
+        if (err.response?.status !== 404) {
+          console.error('Failed to load hedge session:', err);
+        }
       }
+      
+      // Store initial quantities for later reset
+      (window as any).__initialQuantities = initialQtyCopy;
     } catch (err) {
       console.error('Failed to load data:', err);
     } finally {
@@ -141,22 +174,48 @@ export const ValueAtRiskPage = () => {
     }
 
     try {
-      if (!hedgeSession) {
-        await createHedgeSession();
-      }
-
-      await addHedgeItem({
+      // Log what we're about to send
+      const itemData = {
         commodity: future.commodity as Commodity,
         contract_month: future.contract_month,
+        future_type: future.future_type as 'high' | 'low',
         quantity: qty,
-      });
+      };
+      console.log('Adding to cart:', itemData);
+      
+      // Add to hedge session
+      await addHedgeItem(itemData);
 
+      // Reload session to get updated cart
       const session = await getCurrentHedgeSession();
       setHedgeSession(session);
       
-      alert(`Added ${qty} ${future.commodity.toUpperCase()} to portfolio!`);
+      // Mark only this specific tile as in cart
+      const newCart = new Set(cartFutures);
+      newCart.add(key);
+      setCartFutures(newCart);
+      
+      console.log(`Added ${future.commodity} ${future.contract_month} ${future.future_type} to cart`);
+      console.log('Cart now has', session.items.length, 'items');
+      alert(`Added ${qty} ${future.commodity.toUpperCase()} ${future.future_type.toUpperCase()} to cart!`);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to add to portfolio');
+      console.error('Add to cart error:', err);
+      console.error('Error response:', err.response?.data);
+      console.error('Error status:', err.response?.status);
+      
+      // If no active session, create one first
+      if (err.response?.status === 404) {
+        try {
+          await createHedgeSession();
+          await handleAddToPortfolio(future); // Retry
+          return;
+        } catch (createErr) {
+          console.error('Failed to create session:', createErr);
+        }
+      }
+      
+      const errorDetail = err.response?.data?.detail || err.message || 'Failed to add to cart';
+      alert(`Failed to add to cart: ${JSON.stringify(errorDetail)}`);
     }
   };
 
@@ -165,13 +224,51 @@ export const ValueAtRiskPage = () => {
     
     // Remove from cart if it's there
     if (cartFutures.has(key)) {
-      // TODO: Implement remove from hedge session API
-      const newCart = new Set(cartFutures);
-      newCart.delete(key);
-      setCartFutures(newCart);
+      try {
+        await removeHedgeItem(future.commodity, future.contract_month, future.future_type);
+        
+        // Get initial quantities for reset
+        const initialQuantities = (window as any).__initialQuantities || {};
+        
+        // Remove only this specific tile from cart markers
+        const newCart = new Set(cartFutures);
+        const newChecked = new Set(checkedFutures);
+        
+        // Remove from cart
+        newCart.delete(key);
+        setCartFutures(newCart);
+        
+        // Uncheck this tile
+        newChecked.delete(key);
+        setCheckedFutures(newChecked);
+        
+        // Reset quantity to initial value
+        const newQuantities = { ...quantities };
+        newQuantities[key] = initialQuantities[key] || 0;
+        setQuantities(newQuantities);
+        
+        console.log(`Dropped ${future.commodity} ${future.contract_month} ${future.future_type} from cart`);
+        
+        // Reload session
+        try {
+          const session = await getCurrentHedgeSession();
+          setHedgeSession(session);
+          console.log('Cart updated after drop, now has', session.items.length, 'items');
+        } catch (err) {
+          // Session might be empty now
+          setHedgeSession(null);
+          console.log('Cart is now empty');
+        }
+        
+        // Clear evaluation since we unchecked
+        setEvalPriceData(null);
+        return;
+      } catch (err) {
+        console.error('Failed to remove from cart:', err);
+      }
     }
     
-    // Uncheck if checked
+    // Uncheck if checked (for non-cart items)
     if (checkedFutures.has(key)) {
       await handleCheckboxChange(future, false);
     }

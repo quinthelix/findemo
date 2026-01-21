@@ -3,7 +3,7 @@
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login } from '../api/endpoints';
+import { login, getDataStatus } from '../api/endpoints';
 import './NewLoginScreen.css';
 
 export const NewLoginScreen = () => {
@@ -28,7 +28,21 @@ export const NewLoginScreen = () => {
       const displayName = response.customer_name.charAt(0).toUpperCase() + response.customer_name.slice(1);
       document.title = `${displayName} - Findemo`;
       
-      navigate('/dashboard/var');
+      // Check if user has uploaded data
+      try {
+        const dataStatus = await getDataStatus();
+        
+        // If purchases are uploaded, go to analysis page; otherwise go to upload page
+        if (dataStatus.purchases.uploaded) {
+          navigate('/dashboard/var');
+        } else {
+          navigate('/dashboard/upload');
+        }
+      } catch (dataErr) {
+        // If data status check fails, default to upload page
+        console.warn('Could not check data status, defaulting to upload page', dataErr);
+        navigate('/dashboard/upload');
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Login failed');
     } finally {

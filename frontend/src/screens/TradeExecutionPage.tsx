@@ -4,8 +4,8 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCurrentHedgeSession } from '../api/endpoints';
-import type { HedgeSessionWithItems } from '../types/api';
+import { getCurrentHedgeSession, executeHedge, removeHedgeItem } from '../api/endpoints';
+import type { HedgeSessionWithItems, HedgeSessionItem } from '../types/api';
 import './TradeExecutionPage.css';
 
 export const TradeExecutionPage = () => {
@@ -31,15 +31,70 @@ export const TradeExecutionPage = () => {
   };
 
   const handleExecute = async () => {
-    // TODO: Implement execute API
-    alert('Execute trade functionality coming soon');
+    if (!hedgeSession || items.length === 0) {
+      alert('Cart is empty');
+      return;
+    }
+
+    if (!confirm(`Execute ${items.length} hedge ${items.length === 1 ? 'trade' : 'trades'}? This action is final and cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await executeHedge();
+      
+      alert(`Successfully executed ${items.length} trades!\n\nStatus: ${result.status}\nExecuted at: ${new Date(result.executed_at).toLocaleString()}`);
+      
+      // Clear cart and go back to analysis
+      setHedgeSession(null);
+      navigate('/dashboard/var');
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to execute trades');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleAbort = () => {
-    // TODO: Implement abort/cancel API
-    if (confirm('Are you sure you want to abort this trading session?')) {
+  const handleAbort = async () => {
+    if (!hedgeSession || items.length === 0) {
+      navigate('/dashboard/var');
+      return;
+    }
+
+    if (!confirm(`Abort trading session? This will remove all ${items.length} items from your cart.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      // Remove all items
+      for (const item of items) {
+        await removeHedgeItem(item.commodity, item.contract_month, item.future_type);
+      }
+      
       setHedgeSession(null);
-      navigate('/value-at-risk');
+      navigate('/dashboard/var');
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to abort session');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveItem = async (item: HedgeSessionItem) => {
+    if (!confirm(`Remove ${item.commodity.toUpperCase()} ${item.future_type.toUpperCase()} ${new Date(item.contract_month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} from cart?`)) {
+      return;
+    }
+
+    try {
+      await removeHedgeItem(item.commodity, item.contract_month, item.future_type);
+      await loadCart(); // Reload cart
+      
+      // Note: The VaR page will sync when user navigates back to it
+      console.log('Removed from cart - VaR page will sync on next visit');
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to remove item');
     }
   };
 
@@ -93,11 +148,23 @@ export const TradeExecutionPage = () => {
                         fontWeight: 700,
                         fontSize: '1.125rem',
                       }}>
-                        {item.commodity}
+                        {item.commodity} {item.future_type}
                       </span>
-                      <span className="item-quantity">
-                        {item.quantity.toLocaleString()} units
-                      </span>
+                      <button
+                        onClick={() => handleRemoveItem(item)}
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.2)',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          borderRadius: '4px',
+                          padding: '0.25rem 0.75rem',
+                          color: '#ef4444',
+                          cursor: 'pointer',
+                          fontSize: '0.875rem',
+                          fontWeight: 600,
+                        }}
+                      >
+                        ✕ Remove
+                      </button>
                     </div>
                     <div className="item-details">
                       <div className="detail-row">
@@ -110,9 +177,35 @@ export const TradeExecutionPage = () => {
                         <span className="detail-label">Quantity:</span>
                         <span className="detail-value">{item.quantity.toLocaleString()} units</span>
                       </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Price Snapshot:</span>
+                        <span className="detail-value">${item.price_snapshot.toFixed(2)}/unit</span>
+                      </div>
+                      <div className="detail-row" style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                        <span className="detail-label" style={{ fontWeight: 700 }}>Total Value:</span>
+                        <span className="detail-value" style={{ fontWeight: 700, color: '#10b981' }}>
+                          ${(item.quantity * item.price_snapshot).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ))}
+              </div>
+              
+              {/* Total Summary */}
+              <div className="cart-summary" style={{
+                marginTop: '2rem',
+                padding: '1.5rem',
+                background: 'rgba(16, 185, 129, 0.1)',
+                border: '2px solid rgba(16, 185, 129, 0.3)',
+                borderRadius: '8px',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '1.25rem', fontWeight: 700 }}>Total Portfolio Value:</span>
+                  <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#10b981' }}>
+                    ${items.reduce((sum, item) => sum + (item.quantity * item.price_snapshot), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
             </div>
 

@@ -46,6 +46,7 @@ class HedgeSessionItem(BaseModel):
     """Item in hedge session"""
     commodity: Commodity
     contract_month: date = Field(description="YYYY-MM-01 format")
+    future_type: Literal["high", "low"]
     quantity: float = Field(gt=0)
     price_snapshot: float = Field(gt=0)
     
@@ -57,6 +58,7 @@ class HedgeSessionItemCreate(BaseModel):
     """Create hedge session item"""
     commodity: Commodity
     contract_month: date
+    future_type: Literal["high", "low"]
     quantity: float = Field(gt=0)
 
 

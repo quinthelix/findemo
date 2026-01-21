@@ -31,6 +31,7 @@ export interface HedgeSession {
 export interface HedgeSessionItem {
   commodity: Commodity;
   contract_month: string;
+  future_type: 'high' | 'low';
   quantity: number;
   price_snapshot: number;
 }
@@ -38,6 +39,7 @@ export interface HedgeSessionItem {
 export interface HedgeSessionItemCreate {
   commodity: Commodity;
   contract_month: string;
+  future_type: 'high' | 'low';
   quantity: number;
 }
 
