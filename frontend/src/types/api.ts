@@ -101,6 +101,8 @@ export interface PricePoint {
   high_future: number;
   low_future: number;
   is_past: boolean;
+  var: number;  // Value at Risk (downside risk)
+  is_milestone: boolean;  // True for 1M, 3M, 6M, 9M, 12M dates
 }
 
 export interface CommodityProjection {

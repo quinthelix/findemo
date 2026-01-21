@@ -7,7 +7,7 @@
  * With shaded uncertainty area between high and low
  */
 import React from 'react';
-import { Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine } from 'recharts';
+import { Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine, LabelList } from 'recharts';
 import type { PriceProjectionResponse, Commodity } from '../types/api';
 
 interface PriceProjectionChartProps {
@@ -48,6 +48,8 @@ export const PriceProjectionChart: React.FC<PriceProjectionChartProps> = ({ data
       dateMap[point.date][`${commodity}_price`] = point.price === 0 && !point.is_past ? null : point.price;
       dateMap[point.date][`${commodity}_high`] = point.high_future;
       dateMap[point.date][`${commodity}_low`] = point.low_future;
+      dateMap[point.date][`${commodity}_var`] = point.var;
+      dateMap[point.date][`${commodity}_is_milestone`] = point.is_milestone;
     });
   });
 
@@ -84,9 +86,42 @@ export const PriceProjectionChart: React.FC<PriceProjectionChartProps> = ({ data
   ];
 
   // Commodity colors - MATCH MarketPriceChart colors
-  const colors = {
+  const colors: Record<string, string> = {
     sugar: '#667eea',  // Indigo (same as market chart)
     flour: '#8b5cf6',  // Purple (same as market chart)
+  };
+
+  // Custom label component for VaR at milestones
+  const renderVarLabel = (props: any, commodity: string) => {
+    const { x, y, index } = props;
+    const point = chartData[index];
+    
+    if (!point || !point[`${commodity}_is_milestone`]) {
+      return null;
+    }
+    
+    const varValue = point[`${commodity}_var`];
+    if (varValue === undefined || varValue === 0) {
+      return null;
+    }
+    
+    // Format VaR value
+    const formatted = varValue >= 1000 
+      ? `$${(varValue / 1000).toFixed(1)}K`
+      : `$${varValue.toFixed(0)}`;
+    
+    return (
+      <text
+        x={x}
+        y={y - 15}
+        fill={colors[commodity] || '#888'}
+        fontSize={10}
+        fontWeight={600}
+        textAnchor="middle"
+      >
+        VaR: {formatted}
+      </text>
+    );
   };
 
   return (
@@ -180,7 +215,11 @@ export const PriceProjectionChart: React.FC<PriceProjectionChartProps> = ({ data
                   name={`${commodity} (high)`}
                   strokeOpacity={0.7}
                   isAnimationActive={false}
-                />
+                >
+                  <LabelList
+                    content={(props) => renderVarLabel(props, commodity)}
+                  />
+                </Line>
 
                 {/* Baseline price line (only show for past) */}
                 <Line

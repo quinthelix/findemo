@@ -27,6 +27,8 @@ class PricePoint(BaseModel):
     high_future: float
     low_future: float
     is_past: bool
+    var: float  # Value at Risk (downside risk from baseline)
+    is_milestone: bool  # True for 1M, 3M, 6M, 9M, 12M dates
 
 
 class CommodityProjection(BaseModel):
@@ -160,9 +162,19 @@ async def get_price_projection_timeline(
             timeline = []
             current_date = start_date
             
+            # Calculate milestone dates (1M, 3M, 6M, 9M, 12M from today)
+            milestone_dates = set()
+            for months in [1, 3, 6, 9, 12]:
+                milestone = today + relativedelta(months=months)
+                milestone_key = date(milestone.year, milestone.month, 1)
+                milestone_dates.add(milestone_key)
+            
             while current_date <= end_date:
                 is_past = current_date < today
                 month_key = date(current_date.year, current_date.month, 1)
+                
+                # Check if this is a milestone date
+                is_milestone = month_key in milestone_dates
                 
                 # Get volume for this month
                 if is_past:
@@ -191,7 +203,9 @@ async def get_price_projection_timeline(
                         price=total_value,
                         high_future=total_value,
                         low_future=total_value,
-                        is_past=True
+                        is_past=True,
+                        var=0.0,  # No risk in past
+                        is_milestone=False  # Don't show milestones in past
                     ))
                 else:
                     # FUTURE: Return null for price, only show high/low futures * volume
@@ -208,13 +222,23 @@ async def get_price_projection_timeline(
                     high_future_price = baseline_price * (1.0 + uncertainty)
                     low_future_price = baseline_price * (1.0 - uncertainty)
                     
+                    # Calculate total values
+                    high_total = high_future_price * volume
+                    low_total = low_future_price * volume
+                    baseline_total = baseline_price * volume
+                    
+                    # VaR = downside risk from baseline
+                    var_value = baseline_total - low_total
+                    
                     # Multiply by volume
                     timeline.append(PricePoint(
                         date=current_date.isoformat(),
                         price=0.0,  # Null/zero for future - don't show baseline
-                        high_future=high_future_price * volume,
-                        low_future=low_future_price * volume,
-                        is_past=False
+                        high_future=high_total,
+                        low_future=low_total,
+                        is_past=False,
+                        var=var_value,
+                        is_milestone=is_milestone
                     ))
                 
                 # Move to next month
