@@ -668,7 +668,7 @@ export const ValueAtRiskPage = () => {
           <h1>Value at Risk Analysis</h1>
           <p>95% Confidence Level | 12-Month Horizon</p>
         </div>
-        <div className="var-metrics">
+        {/* <div className="var-metrics">
           <div className="metric-card" style={{minWidth: '220px'}}>
             <span className="metric-label">Portfolio VaR</span>
             <span className="metric-value">${(currentVaR / 1000).toFixed(0)}K</span>
@@ -676,7 +676,7 @@ export const ValueAtRiskPage = () => {
               With Hedge: ${(hedgedVaR / 1000).toFixed(0)}K
             </div>
           </div>
-        </div>
+        </div> */}
       </header>
 
       <div className="var-content">

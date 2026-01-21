@@ -198,27 +198,41 @@ docker-compose restart frontend
 
 ### Schema Initialization
 
-Schema is auto-loaded on first postgres startup via `docker-compose.yml` volume mount:
+**Automatic on First Startup**
+
+Schema and seed data are automatically loaded when the postgres container starts **with an empty data volume**. This is done via volume mounts in `docker-compose.yml`:
+
 ```yaml
 volumes:
-  - ./backend/db/schema_v2.sql:/docker-entrypoint-initdb.d/01-schema.sql
-  - ./backend/db/seed_minimal.sql:/docker-entrypoint-initdb.d/02-seed.sql
+  - postgres_data:/var/lib/postgresql/data
+  - ./backend/db/schema_v2.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+  - ./backend/db/seed_minimal.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
 ```
 
-### Manual Schema Reset
+PostgreSQL automatically runs files in `/docker-entrypoint-initdb.d/` **only when initializing a new database** (i.e., when the data directory is empty).
+
+### Manual Schema Reset (Complete Clean Slate)
 
 **Warning**: This deletes all data.
 
 ```bash
-# Stop containers
-docker-compose down
+# Stop containers and remove volumes
+docker-compose down -v
 
-# Remove postgres volume
-docker volume rm findemo_postgres_data
-
-# Restart (will re-initialize)
+# Start fresh (auto-initializes from mounted SQL files)
 docker-compose up -d
+
+# Wait for initialization to complete
+sleep 10
+
+# Verify database is ready
+docker-compose exec postgres psql -U findemo -d findemo -c "\dt"
 ```
+
+**How it works**: 
+- `docker-compose down -v` removes the `postgres_data` volume
+- When postgres starts with an empty volume, it runs `/docker-entrypoint-initdb.d/*.sql` files automatically
+- Schema and seed data are loaded from the mounted SQL files
 
 ### Check Database State
 

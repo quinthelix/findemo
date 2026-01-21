@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS purchases (
     quantity DECIMAL(15, 3) NOT NULL,
     unit VARCHAR(20) NOT NULL,
     purchase_price DECIMAL(15, 2) NOT NULL,
+    price_type VARCHAR(10) DEFAULT 'fixed',
+    payment_date DATE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT check_delivery_dates CHECK (delivery_end_date >= delivery_start_date),
     CONSTRAINT check_quantity_positive CHECK (quantity > 0),
@@ -85,6 +87,7 @@ CREATE TABLE IF NOT EXISTS market_prices (
     price_date DATE NOT NULL,
     contract_month DATE,
     price DECIMAL(15, 2) NOT NULL,
+    cost DECIMAL(15, 2),
     source VARCHAR(50) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT check_market_price_positive CHECK (price > 0)
@@ -130,8 +133,10 @@ CREATE TABLE IF NOT EXISTS hedge_session_items (
     hedge_session_id UUID NOT NULL REFERENCES hedge_sessions(id) ON DELETE CASCADE,
     commodity_id UUID NOT NULL REFERENCES commodities(id) ON DELETE CASCADE,
     contract_month DATE NOT NULL,
+    future_type VARCHAR(10) CHECK (future_type IN ('high', 'low')),
     quantity DECIMAL(15, 3) NOT NULL,
     price_snapshot DECIMAL(15, 2) NOT NULL,
+    future_cost DECIMAL(15, 2),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT check_hedge_item_quantity_positive CHECK (quantity > 0),
     CONSTRAINT check_hedge_item_price_positive CHECK (price_snapshot > 0)
