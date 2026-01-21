@@ -9,7 +9,7 @@ import { DashboardLayout } from './screens/DashboardLayout';
 import { DataLoadScreen } from './screens/DataLoadScreen';
 import { ValueAtRiskPage } from './screens/ValueAtRiskPage';
 import { TradeExecutionPage } from './screens/TradeExecutionPage';
-import { PortfolioPage } from './screens/PortfolioPage';
+import { PortfolioHistoryPage } from './screens/PortfolioHistoryPage';
 import './App.css';
 
 // Protected Route Component
@@ -50,7 +50,7 @@ function App() {
           <Route path="upload" element={<DataLoadScreen />} />
           <Route path="var" element={<ValueAtRiskPage />} />
           <Route path="execution" element={<TradeExecutionPage />} />
-          <Route path="portfolio" element={<PortfolioPage />} />
+          <Route path="portfolio" element={<PortfolioHistoryPage />} />
         </Route>
         
         <Route path="*" element={<Navigate to="/" replace />} />

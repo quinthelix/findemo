@@ -4,7 +4,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPriceProjection, getPriceProjectionWithEvaluations, getFuturesList, getCurrentHedgeSession, createHedgeSession, addHedgeItem } from '../api/endpoints';
+import { getPriceProjection, getPriceProjectionWithEvaluations, getFuturesList, getCurrentHedgeSession, createHedgeSession, addHedgeItem, removeHedgeItem } from '../api/endpoints';
 import { PriceProjectionChart } from '../components/PriceProjectionChart';
 import { MarketPriceChart } from '../components/MarketPriceChart';
 import type { PriceProjectionResponse, FutureContract, HedgeSessionWithItems, Commodity } from '../types/api';
@@ -16,7 +16,8 @@ export const ValueAtRiskPage = () => {
   const [futures, setFutures] = useState<FutureContract[]>([]);
   const [hedgeSession, setHedgeSession] = useState<HedgeSessionWithItems | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedCommodities, setSelectedCommodities] = useState<Set<Commodity>>(new Set(['sugar', 'flour']));
+  const [selectedCommodities, setSelectedCommodities] = useState<Set<Commodity>>(new Set());
+  const [availableCommodities, setAvailableCommodities] = useState<Commodity[]>([]);
   const [hoverDate, setHoverDate] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [groupBy, setGroupBy] = useState<'commodity' | 'date'>('commodity');
@@ -27,7 +28,8 @@ export const ValueAtRiskPage = () => {
     quantity: number;
   }>>([]);
   const [checkedFutures, setCheckedFutures] = useState<Set<string>>(new Set());
-  const [cartFutures, setCartFutures] = useState<Set<string>>(new Set());
+  const [transactionFutures, setTransactionFutures] = useState<Set<string>>(new Set());
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -56,8 +58,29 @@ export const ValueAtRiskPage = () => {
         getFuturesList(),
       ]);
 
+      // Only set data if futures exist
+      if (!futuresResponse.futures || futuresResponse.futures.length === 0) {
+        console.log('No futures data available - clearing state');
+        setPriceData(null);
+        setFutures([]);
+        setAvailableCommodities([]);
+        setSelectedCommodities(new Set());
+        setQuantities({});
+        setLoading(false);
+        return;
+      }
+
       setPriceData(priceResponse);
       setFutures(futuresResponse.futures);
+      
+      // Extract unique commodities from futures data
+      const uniqueCommodities = Array.from(
+        new Set(futuresResponse.futures.map(f => f.commodity as Commodity))
+      );
+      setAvailableCommodities(uniqueCommodities);
+      
+      // Auto-select all available commodities
+      setSelectedCommodities(new Set(uniqueCommodities));
       
       // Initialize quantities for each future using suggested_quantity from backend
       const initialQuantities: Record<string, number> = {};
@@ -68,32 +91,61 @@ export const ValueAtRiskPage = () => {
       // Store initial quantities for reset purposes
       const initialQtyCopy = { ...initialQuantities };
 
-      // Load existing hedge session to sync tiles with cart
+      // Load existing hedge session to sync tiles with transaction
       try {
         const session = await getCurrentHedgeSession();
         setHedgeSession(session);
         
-        // Mark items in cart and update quantities/checkboxes
-        const cartItems = new Set<string>();
+        // Mark items in transaction and update quantities/checkboxes
+        const transactionItems = new Set<string>();
         const checkedItems = new Set<string>();
+        const evaluations: Array<{commodity: string, contract_month: string, price: number, quantity: number}> = [];
         
         session.items.forEach(item => {
           // Direct match by commodity + contract_month + future_type
           const key = `${item.commodity}-${item.contract_month}-${item.future_type}`;
           
-          // Mark this specific tile as in cart
-          cartItems.add(key);
+          // Mark this specific tile as in transaction
+          transactionItems.add(key);
           checkedItems.add(key);
           initialQuantities[key] = item.quantity;
           
-          console.log(`Cart item: ${item.commodity} ${item.contract_month} ${item.future_type} = ${item.quantity} units`);
+          // Add to evaluations for chart
+          evaluations.push({
+            commodity: item.commodity,
+            contract_month: item.contract_month,
+            price: item.price_snapshot,
+            quantity: item.quantity,
+          });
+          
+          console.log(`Transaction item: ${item.commodity} ${item.contract_month} ${item.future_type} = ${item.quantity} units`);
         });
         
-        setCartFutures(cartItems);
+        setTransactionFutures(transactionItems);
         setCheckedFutures(checkedItems);
         setQuantities(initialQuantities);
         
-        console.log('Loaded cart with', session.items.length, 'items - synced to tiles');
+        // Trigger evaluation chart if there are items
+        if (evaluations.length > 0) {
+          const oneYearAgo = new Date();
+          oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+          const oneYearFuture = new Date();
+          oneYearFuture.setFullYear(oneYearFuture.getFullYear() + 1);
+          
+          const startDate = oneYearAgo.toISOString().split('T')[0];
+          const endDate = oneYearFuture.toISOString().split('T')[0];
+          
+          const evalResponse = await getPriceProjectionWithEvaluations({
+            start_date: startDate,
+            end_date: endDate,
+            evaluations: evaluations,
+          });
+          
+          setEvalPriceData(evalResponse);
+          console.log('Loaded evaluation chart with', evaluations.length, 'futures');
+        }
+        
+        console.log('Loaded transaction with', session.items.length, 'items - synced to tiles');
       } catch (err: any) {
         // No active session yet - use initial values
         setHedgeSession(null);
@@ -169,7 +221,8 @@ export const ValueAtRiskPage = () => {
     const qty = quantities[key] || 0;
     
     if (qty === 0) {
-      alert('Quantity cannot be zero');
+      setNotification({ message: 'Quantity cannot be zero', type: 'error' });
+      setTimeout(() => setNotification(null), 3000);
       return;
     }
 
@@ -181,25 +234,30 @@ export const ValueAtRiskPage = () => {
         future_type: future.future_type as 'high' | 'low',
         quantity: qty,
       };
-      console.log('Adding to cart:', itemData);
+      console.log('Adding to transaction:', itemData);
       
       // Add to hedge session
       await addHedgeItem(itemData);
 
-      // Reload session to get updated cart
+      // Reload session to get updated transaction
       const session = await getCurrentHedgeSession();
       setHedgeSession(session);
       
-      // Mark only this specific tile as in cart
-      const newCart = new Set(cartFutures);
-      newCart.add(key);
-      setCartFutures(newCart);
+      // Mark only this specific tile as in transaction
+      const newTransaction = new Set(transactionFutures);
+      newTransaction.add(key);
+      setTransactionFutures(newTransaction);
       
-      console.log(`Added ${future.commodity} ${future.contract_month} ${future.future_type} to cart`);
-      console.log('Cart now has', session.items.length, 'items');
-      alert(`Added ${qty} ${future.commodity.toUpperCase()} ${future.future_type.toUpperCase()} to cart!`);
+      console.log(`Added ${future.commodity} ${future.contract_month} ${future.future_type} to transaction`);
+      console.log('Transaction now has', session.items.length, 'items');
+      
+      setNotification({ 
+        message: `Added ${qty.toLocaleString()} ${future.commodity.toUpperCase()} ${future.future_type.toUpperCase()} to transaction`, 
+        type: 'success' 
+      });
+      setTimeout(() => setNotification(null), 3000);
     } catch (err: any) {
-      console.error('Add to cart error:', err);
+      console.error('Add to transaction error:', err);
       console.error('Error response:', err.response?.data);
       console.error('Error status:', err.response?.status);
       
@@ -214,29 +272,39 @@ export const ValueAtRiskPage = () => {
         }
       }
       
-      const errorDetail = err.response?.data?.detail || err.message || 'Failed to add to cart';
-      alert(`Failed to add to cart: ${JSON.stringify(errorDetail)}`);
+      const errorDetail = err.response?.data?.detail || err.message || 'Failed to add to transaction';
+      setNotification({ message: errorDetail, type: 'error' });
+      setTimeout(() => setNotification(null), 5000);
     }
   };
 
   const handleDrop = async (future: FutureContract) => {
     const key = `${future.commodity}-${future.contract_month}-${future.future_type}`;
     
-    // Remove from cart if it's there
-    if (cartFutures.has(key)) {
+    console.log('=== DROP CLICKED ===');
+    console.log('Future:', future);
+    console.log('Key:', key);
+    console.log('Is in transaction?', transactionFutures.has(key));
+    console.log('Is checked?', checkedFutures.has(key));
+    
+    // Remove from transaction if it's there
+    if (transactionFutures.has(key)) {
+      console.log('→ Removing from transaction...');
       try {
+        console.log('Calling API removeHedgeItem:', future.commodity, future.contract_month, future.future_type);
         await removeHedgeItem(future.commodity, future.contract_month, future.future_type);
+        console.log('✓ API call successful');
         
         // Get initial quantities for reset
         const initialQuantities = (window as any).__initialQuantities || {};
         
-        // Remove only this specific tile from cart markers
-        const newCart = new Set(cartFutures);
+        // Remove only this specific tile from transaction markers
+        const newTransaction = new Set(transactionFutures);
         const newChecked = new Set(checkedFutures);
         
-        // Remove from cart
-        newCart.delete(key);
-        setCartFutures(newCart);
+        // Remove from transaction
+        newTransaction.delete(key);
+        setTransactionFutures(newTransaction);
         
         // Uncheck this tile
         newChecked.delete(key);
@@ -247,35 +315,91 @@ export const ValueAtRiskPage = () => {
         newQuantities[key] = initialQuantities[key] || 0;
         setQuantities(newQuantities);
         
-        console.log(`Dropped ${future.commodity} ${future.contract_month} ${future.future_type} from cart`);
+        console.log('✓ State updated locally');
         
-        // Reload session
+        // Reload session to verify
         try {
           const session = await getCurrentHedgeSession();
           setHedgeSession(session);
-          console.log('Cart updated after drop, now has', session.items.length, 'items');
+          console.log('✓ Session reloaded:', session.items.length, 'items');
         } catch (err) {
           // Session might be empty now
           setHedgeSession(null);
-          console.log('Cart is now empty');
+          console.log('✓ Transaction is now empty');
         }
         
-        // Clear evaluation since we unchecked
-        setEvalPriceData(null);
-        return;
-      } catch (err) {
-        console.error('Failed to remove from cart:', err);
+        // Rebuild evaluation chart with remaining items
+        if (newChecked.size > 0) {
+          console.log('→ Rebuilding evaluation chart...');
+          const newEvaluations = futures
+            .filter(f => {
+              const fKey = `${f.commodity}-${f.contract_month}-${f.future_type}`;
+              return newChecked.has(fKey);
+            })
+            .map(f => {
+              const fKey = `${f.commodity}-${f.contract_month}-${f.future_type}`;
+              return {
+                commodity: f.commodity,
+                contract_month: f.contract_month,
+                price: f.price,
+                quantity: newQuantities[fKey] || quantities[fKey] || 0,
+              };
+            });
+          
+          if (newEvaluations.length > 0) {
+            const oneYearAgo = new Date();
+            oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+            const oneYearFuture = new Date();
+            oneYearFuture.setFullYear(oneYearFuture.getFullYear() + 1);
+            
+            const startDate = oneYearAgo.toISOString().split('T')[0];
+            const endDate = oneYearFuture.toISOString().split('T')[0];
+            
+            const evalResponse = await getPriceProjectionWithEvaluations({
+              start_date: startDate,
+              end_date: endDate,
+              evaluations: newEvaluations,
+            });
+            
+            setEvalPriceData(evalResponse);
+            console.log('✓ Evaluation chart rebuilt');
+          } else {
+            setEvalPriceData(null);
+            console.log('✓ Cleared evaluation (no remaining evals)');
+          }
+        } else {
+          // No items left, clear evaluation
+          setEvalPriceData(null);
+          console.log('✓ Cleared evaluation (no checked items)');
+        }
+        
+        setNotification({ 
+          message: `Removed ${future.commodity.toUpperCase()} ${future.future_type.toUpperCase()} from transaction`, 
+          type: 'info' 
+        });
+        setTimeout(() => setNotification(null), 3000);
+        console.log('=== DROP COMPLETE ===');
+      } catch (err: any) {
+        console.error('✗ Failed to remove from transaction:', err);
+        console.error('Error details:', err.response?.data);
+        setNotification({ 
+          message: 'Failed to remove: ' + (err.response?.data?.detail || err.message), 
+          type: 'error' 
+        });
+        setTimeout(() => setNotification(null), 5000);
       }
-    }
-    
-    // Uncheck if checked (for non-cart items)
-    if (checkedFutures.has(key)) {
+    } else if (checkedFutures.has(key)) {
+      // Just unchecked, not in transaction
+      console.log('→ Not in transaction, just unchecking...');
       await handleCheckboxChange(future, false);
+      
+      // Reset quantity to suggested
+      const suggestedQty = Math.round(future.suggested_quantity);
+      setQuantities({ ...quantities, [key]: suggestedQty });
+      console.log('✓ Unchecked and reset quantity');
+    } else {
+      console.log('→ Nothing to do (not checked, not in transaction)');
     }
-    
-    // Reset quantity to suggested
-    const suggestedQty = Math.round(future.suggested_quantity);
-    setQuantities({ ...quantities, [key]: suggestedQty });
   };
 
   const handleQuantityChange = (future: FutureContract, newQty: number) => {
@@ -375,9 +499,14 @@ export const ValueAtRiskPage = () => {
               {typeLabel}
             </span>
           </div>
-          <span style={{ color: '#fff', fontWeight: 600, fontSize: '0.875rem' }}>
-            ${future.price.toFixed(3)}/lb
-          </span>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ color: '#fff', fontWeight: 600, fontSize: '0.875rem' }}>
+              Locks: ${future.price.toFixed(3)}/lb
+            </div>
+            <div style={{ color: '#10b981', fontSize: '0.7rem', fontWeight: 500 }}>
+              Contract: ${(future.cost / 100).toFixed(2)}
+            </div>
+          </div>
         </div>
         <div style={{ fontSize: '0.75rem', color: '#888', marginBottom: '0.5rem' }}>
           Due: {new Date(future.contract_month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
@@ -423,21 +552,21 @@ export const ValueAtRiskPage = () => {
           <div style={{ display: 'flex', gap: '0.25rem', flex: 1 }}>
             <button
               onClick={() => handleAddToPortfolio(future)}
-              disabled={cartFutures.has(key)}
+              disabled={transactionFutures.has(key)}
               style={{
                 flex: 1,
-                background: cartFutures.has(key) ? 'rgba(16, 185, 129, 0.4)' : 'rgba(16, 185, 129, 0.2)',
-                border: `1px solid ${cartFutures.has(key) ? '#10b981' : 'rgba(16, 185, 129, 0.4)'}`,
+                background: transactionFutures.has(key) ? 'rgba(16, 185, 129, 0.4)' : 'rgba(16, 185, 129, 0.2)',
+                border: `1px solid ${transactionFutures.has(key) ? '#10b981' : 'rgba(16, 185, 129, 0.4)'}`,
                 borderRadius: '4px',
                 padding: '0.375rem',
                 color: '#10b981',
-                cursor: cartFutures.has(key) ? 'not-allowed' : 'pointer',
+                cursor: transactionFutures.has(key) ? 'not-allowed' : 'pointer',
                 fontSize: '0.75rem',
                 fontWeight: 600,
-                opacity: cartFutures.has(key) ? 0.7 : 1,
+                opacity: transactionFutures.has(key) ? 0.7 : 1,
               }}
             >
-              {cartFutures.has(key) ? '✓ In Cart' : '+ Add'}
+              {transactionFutures.has(key) ? '✓ Added' : '+ Add'}
             </button>
             <button
               onClick={() => handleDrop(future)}
@@ -552,6 +681,8 @@ export const ValueAtRiskPage = () => {
 
       <div className="var-content">
         <div className="charts-area">
+          {/* Only show main chart section if we have data */}
+          {priceData && availableCommodities.length > 0 && (
           <section className="main-chart-section">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
               <h2 style={{ margin: 0 }}>Total Cost Projection with Uncertainty</h2>
@@ -566,49 +697,46 @@ export const ValueAtRiskPage = () => {
               }}>
                 <span style={{ fontSize: '0.875rem', color: '#888', fontWeight: 600, marginRight: '0.5rem' }}>Show:</span>
                 
-                <button
-                  onClick={() => handleCommodityToggle('sugar')}
-                  style={{
-                    background: selectedCommodities.has('sugar') ? 'rgba(102, 126, 234, 0.3)' : 'rgba(255,255,255,0.05)',
-                    border: selectedCommodities.has('sugar') ? '2px solid #667eea' : '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: '6px',
-                    padding: '0.5rem 1rem',
-                    color: selectedCommodities.has('sugar') ? '#667eea' : '#888',
-                    cursor: 'pointer',
-                    fontSize: '0.875rem',
-                    fontWeight: 600,
-                    transition: 'all 0.2s ease',
-                  }}
-                >
-                  Sugar
-                </button>
-                
-                <button
-                  onClick={() => handleCommodityToggle('flour')}
-                  style={{
-                    background: selectedCommodities.has('flour') ? 'rgba(139, 92, 246, 0.3)' : 'rgba(255,255,255,0.05)',
-                    border: selectedCommodities.has('flour') ? '2px solid #8b5cf6' : '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: '6px',
-                    padding: '0.5rem 1rem',
-                    color: selectedCommodities.has('flour') ? '#8b5cf6' : '#888',
-                    cursor: 'pointer',
-                    fontSize: '0.875rem',
-                    fontWeight: 600,
-                    transition: 'all 0.2s ease',
-                  }}
-                >
-                  Flour
-                </button>
+                {availableCommodities.map((commodity, index) => {
+                  const colors = [
+                    { bg: 'rgba(102, 126, 234, 0.3)', border: '#667eea', color: '#667eea' },
+                    { bg: 'rgba(139, 92, 246, 0.3)', border: '#8b5cf6', color: '#8b5cf6' },
+                    { bg: 'rgba(236, 72, 153, 0.3)', border: '#ec4899', color: '#ec4899' },
+                    { bg: 'rgba(34, 197, 94, 0.3)', border: '#22c55e', color: '#22c55e' },
+                  ];
+                  const colorScheme = colors[index % colors.length];
+                  const isSelected = selectedCommodities.has(commodity);
+                  
+                  return (
+                    <button
+                      key={commodity}
+                      onClick={() => handleCommodityToggle(commodity)}
+                      style={{
+                        background: isSelected ? colorScheme.bg : 'rgba(255,255,255,0.05)',
+                        border: isSelected ? `2px solid ${colorScheme.border}` : '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '6px',
+                        padding: '0.5rem 1rem',
+                        color: isSelected ? colorScheme.color : '#888',
+                        cursor: 'pointer',
+                        fontSize: '0.875rem',
+                        fontWeight: 600,
+                        transition: 'all 0.2s ease',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {commodity}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            {priceData && (
             <PriceProjectionChart 
               data={priceData}
               evalData={evalPriceData}
               selectedCommodities={selectedCommodities}
             />
-            )}
           </section>
+          )}
 
           {selectedCommodities.size > 0 && (
             <section className="market-price-section">
@@ -634,6 +762,22 @@ export const ValueAtRiskPage = () => {
 
         {/* Right Sidebar - Futures (30% width) */}
         <aside className="var-sidebar">
+          {futures.length === 0 ? (
+            <div style={{ 
+              padding: '2rem', 
+              textAlign: 'center', 
+              color: '#888',
+              fontSize: '0.875rem',
+              marginTop: '2rem'
+            }}>
+              <div style={{ fontSize: '3rem', marginBottom: '1rem', opacity: 0.3 }}>📋</div>
+              <p style={{ marginBottom: '0.5rem', fontWeight: 600 }}>No futures available</p>
+              <p style={{ fontSize: '0.75rem', lineHeight: 1.5, color: '#666' }}>
+                Upload purchase data from the Data Load page to see available futures contracts
+              </p>
+            </div>
+          ) : (
+          <>
           <div className="sidebar-header">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
               <h2 style={{ margin: 0 }}>Available Futures</h2>
@@ -707,6 +851,8 @@ export const ValueAtRiskPage = () => {
               </span>
             )}
           </button>
+          </>
+          )}
         </aside>
       </div>
     </div>

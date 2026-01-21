@@ -7,8 +7,8 @@ import { login, getDataStatus } from '../api/endpoints';
 import './NewLoginScreen.css';
 
 export const NewLoginScreen = () => {
-  const [username, setUsername] = useState('demo');
-  const [password, setPassword] = useState('demo123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -55,19 +55,19 @@ export const NewLoginScreen = () => {
       <div className="login-hero">
         <div className="hero-overlay"></div>
         <div className="hero-content">
-          <h1 className="hero-title">Findemo</h1>
+          <h1 className="hero-title">FinOs - Demo</h1>
           <p className="hero-subtitle">Advanced Commodity Risk Management</p>
           <div className="hero-features">
             <div className="feature-item">
-              <span className="feature-icon">📊</span>
+              <span className="feature-icon">◈</span>
               <span>Real-time VaR Analysis</span>
             </div>
             <div className="feature-item">
-              <span className="feature-icon">⚡</span>
+              <span className="feature-icon">⟫</span>
               <span>Instant Hedge Execution</span>
             </div>
             <div className="feature-item">
-              <span className="feature-icon">💼</span>
+              <span className="feature-icon">◐</span>
               <span>Portfolio Management</span>
             </div>
           </div>
@@ -90,7 +90,8 @@ export const NewLoginScreen = () => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 disabled={loading}
-                placeholder="Enter your username"
+                placeholder=""
+                autoComplete="off"
                 required
               />
             </div>
@@ -103,7 +104,8 @@ export const NewLoginScreen = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
-                placeholder="Enter your password"
+                placeholder=""
+                autoComplete="new-password"
                 required
               />
             </div>

@@ -46,6 +46,8 @@ export const LoginScreen = () => {
               onChange={(e) => setUsername(e.target.value)}
               disabled={loading}
               required
+              autoComplete="off"
+              placeholder=""
             />
           </div>
 
@@ -58,6 +60,8 @@ export const LoginScreen = () => {
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
               required
+              autoComplete="off"
+              placeholder=""
             />
           </div>
 

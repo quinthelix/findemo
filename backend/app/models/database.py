@@ -106,6 +106,7 @@ class MarketPrice(Base):
     price_date = Column(Date, nullable=False)
     contract_month = Column(Date, nullable=True)
     price = Column(Numeric(15, 2), nullable=False)
+    cost = Column(Numeric(15, 2), nullable=True)  # Cost to purchase the future (1-2% of commodity price)
     source = Column(String(50), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -160,7 +161,8 @@ class HedgeSessionItem(Base):
     contract_month = Column(Date, nullable=False)
     future_type = Column(String(10), nullable=False)  # 'high' or 'low'
     quantity = Column(Numeric(15, 3), nullable=False)
-    price_snapshot = Column(Numeric(15, 2), nullable=False)
+    price_snapshot = Column(Numeric(15, 2), nullable=False)  # Commodity price the future locks in
+    future_cost = Column(Numeric(15, 2), nullable=True)  # Cost to purchase the future
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     __table_args__ = (

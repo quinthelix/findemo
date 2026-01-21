@@ -22,7 +22,8 @@ router = APIRouter()
 class FutureContract(BaseModel):
     commodity: str
     contract_month: str  # YYYY-MM-DD
-    price: float
+    price: float  # Commodity price per unit the future locks in
+    cost: float  # Total contract cost in cents (1-3 cents fixed per contract)
     future_type: str  # 'high' or 'low'
     suggested_quantity: float  # Average purchase volume for this commodity
 
@@ -40,8 +41,22 @@ async def get_futures_list(
     Get all mock futures contracts for display in tiles
     
     Returns both high and low futures for each commodity and duration
+    ONLY if customer has purchase data
     """
     try:
+        # Check if customer has ANY purchases
+        purchase_check = await db.execute(
+            select(Purchase)
+            .where(Purchase.customer_id == current_user.customer_id)
+            .limit(1)
+        )
+        has_purchases = purchase_check.scalar_one_or_none() is not None
+        
+        # If no purchases, return empty futures list
+        if not has_purchases:
+            logger.info(f"No purchases found for customer {current_user.customer_id}, returning empty futures")
+            return FuturesListResponse(futures=[])
+        
         # Get all commodities
         commodities_result = await db.execute(select(Commodity))
         commodities_list = commodities_result.scalars().all()
@@ -113,6 +128,7 @@ async def get_futures_list(
                 commodity=commodity_name,
                 contract_month=future.contract_month.isoformat(),
                 price=float(future.price),
+                cost=float(future.cost) if future.cost else 0.0,
                 future_type=future_type,
                 suggested_quantity=suggested_qty
             ))

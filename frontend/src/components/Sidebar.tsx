@@ -23,8 +23,8 @@ export const Sidebar = () => {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h1 className="sidebar-logo">{displayName}</h1>
-        <p className="sidebar-subtitle">Risk Management Platform</p>
+        <h1 className="sidebar-logo">FinOs - Demo</h1>
+        <p className="sidebar-subtitle">{displayName}</p>
       </div>
 
       <nav className="sidebar-nav">
@@ -44,8 +44,8 @@ export const Sidebar = () => {
         </NavLink>
 
         <NavLink to="/dashboard/portfolio" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-          <span className="nav-icon">◉</span>
-          <span className="nav-label">Portfolio</span>
+          <span className="nav-icon">◐</span>
+          <span className="nav-label">Portfolio History</span>
         </NavLink>
       </nav>
 

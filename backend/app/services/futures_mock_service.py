@@ -144,35 +144,35 @@ async def generate_mock_futures(db: AsyncSession, customer_id: str = None, force
             contract_date = today + relativedelta(months=months_ahead)
             
             # LOW-PRICE FUTURE
-            # Price decreases over time (better commodity price)
-            # But cost increases (you pay more for the contract)
+            # Price: commodity price it locks in (per unit)
+            # Cost: fixed contract cost in cents (better price = higher cost)
             low_price = base_price * (1.0 - months_ahead * 0.02)  # -2% per month
-            low_cost = base_price * 0.05 * months_ahead  # Cost increases linearly
+            low_cost = 3.0  # 3 cents per contract (better lock-in price)
             
             # HIGH-PRICE FUTURE
-            # Price increases over time (worse commodity price)
-            # But cost decreases (cheaper contract)
+            # Price: commodity price it locks in (per unit)
+            # Cost: fixed contract cost in cents (worse price = lower cost)
             high_price = base_price * (1.0 + months_ahead * 0.02)  # +2% per month
-            high_cost = base_price * 0.10 / months_ahead  # Cost decreases
+            high_cost = 1.0  # 1 cent per contract (worse lock-in price)
             
-            # Store both futures
-            # Low-price future (stored as negative cost to distinguish)
+            # Store both futures with their costs
             low_future = MarketPrice(
                 commodity_id=commodity.id,
                 price_date=today,
                 contract_month=contract_date,
                 price=low_price,
+                cost=low_cost,
                 source='mock_futures_low'
             )
             db.add(low_future)
             futures_created += 1
             
-            # High-price future
             high_future = MarketPrice(
                 commodity_id=commodity.id,
                 price_date=today,
                 contract_month=contract_date,
                 price=high_price,
+                cost=high_cost,
                 source='mock_futures_high'
             )
             db.add(high_future)

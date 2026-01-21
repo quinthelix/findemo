@@ -179,11 +179,28 @@ async def _calculate_price_projection(
 ) -> PriceProjectionResponse:
     """
     Internal function to calculate price projection with evaluations
+    Returns empty data if customer has no purchases
     """
     today = date.today()
     today_month = date(today.year, today.month, 1)
     
     try:
+        # Early check: does customer have ANY purchases?
+        purchase_check = await db.execute(
+            select(Purchase)
+            .where(Purchase.customer_id == current_user.customer_id)
+            .limit(1)
+        )
+        has_purchases = purchase_check.scalar_one_or_none() is not None
+        
+        if not has_purchases:
+            logger.info(f"No purchases for customer {current_user.customer_id}, returning empty projection")
+            return PriceProjectionResponse(
+                start_date=start_date,
+                end_date=end_date,
+                commodities=[]
+            )
+        
         # Get all commodities
         commodities_result = await db.execute(select(Commodity))
         commodities = commodities_result.scalars().all()

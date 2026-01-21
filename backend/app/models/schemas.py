@@ -48,7 +48,8 @@ class HedgeSessionItem(BaseModel):
     contract_month: date = Field(description="YYYY-MM-01 format")
     future_type: Literal["high", "low"]
     quantity: float = Field(gt=0)
-    price_snapshot: float = Field(gt=0)
+    price_snapshot: float = Field(gt=0)  # Commodity price the future locks in
+    future_cost: float = Field(default=0.0, ge=0)  # Cost to purchase the future
     
     class Config:
         from_attributes = True

@@ -33,7 +33,8 @@ export interface HedgeSessionItem {
   contract_month: string;
   future_type: 'high' | 'low';
   quantity: number;
-  price_snapshot: number;
+  price_snapshot: number;  // Commodity price per unit the future locks in
+  future_cost: number;     // Total contract cost in cents (1-3 cents fixed)
 }
 
 export interface HedgeSessionItemCreate {
@@ -124,7 +125,8 @@ export interface PriceProjectionResponse {
 export interface FutureContract {
   commodity: string;
   contract_month: string;  // YYYY-MM-DD
-  price: number;
+  price: number;  // Commodity price per unit the future locks in
+  cost: number;   // Total contract cost in cents (1-3 cents fixed)
   future_type: 'high' | 'low';
   suggested_quantity: number;  // Average purchase volume from database
 }

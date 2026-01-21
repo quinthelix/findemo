@@ -188,7 +188,8 @@ async def add_hedge_item(
             contract_month=item_data.contract_month,
             future_type=item_data.future_type,
             quantity=item_data.quantity,
-            price_snapshot=float(market_price.price)
+            price_snapshot=float(market_price.price),
+            future_cost=float(market_price.cost) if market_price.cost else 0.0
         )
         db.add(item)
         await db.commit()
@@ -199,7 +200,8 @@ async def add_hedge_item(
         contract_month=item.contract_month,
         future_type=item.future_type,
         quantity=float(item.quantity),
-        price_snapshot=float(item.price_snapshot)
+        price_snapshot=float(item.price_snapshot),
+        future_cost=float(item.future_cost) if item.future_cost else 0.0
     )
 
 

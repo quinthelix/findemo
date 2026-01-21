@@ -1,0 +1,210 @@
+.portfolio-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #fff;
+  padding: 2rem;
+}
+
+.portfolio-content {
+  max-width: 1400px;
+  margin: 2rem auto;
+}
+
+/* Summary Cards */
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.summary-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.card-icon {
+  font-size: 2.5rem;
+  opacity: 0.8;
+}
+
+.card-content {
+  flex: 1;
+}
+
+.card-label {
+  font-size: 0.875rem;
+  color: #888;
+  margin-bottom: 0.25rem;
+}
+
+.card-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* Time Filter */
+.time-filter {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.5rem;
+  border-radius: 8px;
+  width: fit-content;
+}
+
+.time-filter button {
+  padding: 0.5rem 1.5rem;
+  background: transparent;
+  border: none;
+  color: #888;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.time-filter button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.time-filter button.active {
+  background: #667eea;
+  color: #fff;
+}
+
+/* Hedges Table */
+.hedges-table-container {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.hedges-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.hedges-table thead {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.hedges-table th {
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #fff;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.hedges-table td {
+  padding: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.hedges-table tbody tr {
+  transition: background 0.2s;
+}
+
+.hedges-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.hedges-table tbody tr.profitable {
+  border-left: 3px solid #10b981;
+}
+
+.hedges-table tbody tr.loss {
+  border-left: 3px solid #ef4444;
+}
+
+/* Badges */
+.commodity-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.commodity-badge.sugar {
+  background: rgba(102, 126, 234, 0.2);
+  color: #667eea;
+  border: 1px solid #667eea;
+}
+
+.commodity-badge.flour {
+  background: rgba(139, 92, 246, 0.2);
+  color: #8b5cf6;
+  border: 1px solid #8b5cf6;
+}
+
+.type-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.type-badge.low {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid #10b981;
+}
+
+.type-badge.high {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid #ef4444;
+}
+
+.savings {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.hedges-table tbody tr.profitable .savings {
+  color: #10b981;
+}
+
+.hedges-table tbody tr.loss .savings {
+  color: #ef4444;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .hedges-table-container {
+    overflow-x: auto;
+  }
+  
+  .hedges-table {
+    min-width: 1000px;
+  }
+}
+
+@media (max-width: 768px) {
+  .summary-cards {
+    grid-template-columns: 1fr;
+  }
+  
+  .card-value {
+    font-size: 1.5rem;
+  }
+}
