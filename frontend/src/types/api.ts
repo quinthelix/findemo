@@ -103,6 +103,9 @@ export interface PricePoint {
   is_past: boolean;
   var: number;  // Value at Risk (downside risk)
   is_milestone: boolean;  // True for 1M, 3M, 6M, 9M, 12M dates
+  volume: number;  // Quantity/volume for this date
+  eval_high?: number | null;  // Evaluated high (only if evaluated)
+  eval_low?: number | null;  // Evaluated low (only if evaluated)
 }
 
 export interface CommodityProjection {
@@ -121,10 +124,25 @@ export interface FutureContract {
   contract_month: string;  // YYYY-MM-DD
   price: number;
   future_type: 'high' | 'low';
+  suggested_quantity: number;  // Average purchase volume from database
 }
 
 export interface FuturesListResponse {
   futures: FutureContract[];
+}
+
+// Evaluation Types (NEW - for multi-evaluation)
+export interface EvaluationItem {
+  commodity: string;
+  contract_month: string;
+  price: number;
+  quantity: number;
+}
+
+export interface EvaluationRequest {
+  start_date: string;
+  end_date: string;
+  evaluations: EvaluationItem[];
 }
 
 // Data Status Types (NEW)

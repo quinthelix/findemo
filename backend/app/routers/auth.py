@@ -55,9 +55,9 @@ async def login(
         "customer_id": str(user.customer_id)
     })
     
-    # Generate mock futures on login
+    # Generate mock futures on login (with customer_id for realistic pricing)
     try:
-        await generate_mock_futures(db)
+        await generate_mock_futures(db, customer_id=str(user.customer_id))
         logger.info(f"Generated mock futures for user {user.username}")
     except Exception as e:
         logger.error(f"Failed to generate futures on login: {e}")

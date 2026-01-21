@@ -134,8 +134,27 @@ export const getExecutedHedges = async (): Promise<PortfolioResponse> => {
 export const getPriceProjection = async (params?: {
   start_date?: string;
   end_date?: string;
+  eval_commodity?: string;
+  eval_contract_month?: string;
+  eval_price?: number;
+  eval_quantity?: number;
 }): Promise<PriceProjectionResponse> => {
   const response = await apiClient.get<PriceProjectionResponse>('/price-projection/timeline', { params });
+  return response.data;
+};
+
+// Multi-evaluation endpoint (NEW)
+export const getPriceProjectionWithEvaluations = async (request: {
+  start_date: string;
+  end_date: string;
+  evaluations: Array<{
+    commodity: string;
+    contract_month: string;
+    price: number;
+    quantity: number;
+  }>;
+}): Promise<PriceProjectionResponse> => {
+  const response = await apiClient.post<PriceProjectionResponse>('/price-projection/timeline-with-eval', request);
   return response.data;
 };
 

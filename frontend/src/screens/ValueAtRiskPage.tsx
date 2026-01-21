@@ -4,7 +4,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPriceProjection, getFuturesList, getCurrentHedgeSession, createHedgeSession, addHedgeItem, previewVarImpact } from '../api/endpoints';
+import { getPriceProjection, getPriceProjectionWithEvaluations, getFuturesList, getCurrentHedgeSession, createHedgeSession, addHedgeItem } from '../api/endpoints';
 import { PriceProjectionChart } from '../components/PriceProjectionChart';
 import { MarketPriceChart } from '../components/MarketPriceChart';
 import type { PriceProjectionResponse, FutureContract, HedgeSessionWithItems, Commodity } from '../types/api';
@@ -12,14 +12,22 @@ import './ValueAtRiskPage.css';
 
 export const ValueAtRiskPage = () => {
   const [priceData, setPriceData] = useState<PriceProjectionResponse | null>(null);
+  const [evalPriceData, setEvalPriceData] = useState<PriceProjectionResponse | null>(null);
   const [futures, setFutures] = useState<FutureContract[]>([]);
   const [hedgeSession, setHedgeSession] = useState<HedgeSessionWithItems | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCommodities, setSelectedCommodities] = useState<Set<Commodity>>(new Set(['sugar', 'flour']));
   const [hoverDate, setHoverDate] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [evaluating, setEvaluating] = useState(false);
   const [groupBy, setGroupBy] = useState<'commodity' | 'date'>('commodity');
+  const [evaluatedFutures, setEvaluatedFutures] = useState<Array<{
+    commodity: string;
+    contract_month: string;
+    price: number;
+    quantity: number;
+  }>>([]);
+  const [checkedFutures, setCheckedFutures] = useState<Set<string>>(new Set());
+  const [cartFutures, setCartFutures] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -51,10 +59,10 @@ export const ValueAtRiskPage = () => {
       setPriceData(priceResponse);
       setFutures(futuresResponse.futures);
       
-      // Initialize quantities for each future
+      // Initialize quantities for each future using suggested_quantity from backend
       const initialQuantities: Record<string, number> = {};
       futuresResponse.futures.forEach(f => {
-        initialQuantities[`${f.commodity}-${f.contract_month}-${f.future_type}`] = 1000;
+        initialQuantities[`${f.commodity}-${f.contract_month}-${f.future_type}`] = Math.round(f.suggested_quantity);
       });
       setQuantities(initialQuantities);
 
@@ -71,34 +79,55 @@ export const ValueAtRiskPage = () => {
     }
   };
 
-  const handleEvaluate = async (future: FutureContract) => {
-    setEvaluating(true);
-    try {
-      const key = `${future.commodity}-${future.contract_month}-${future.future_type}`;
-      const qty = quantities[key] || 0;
+  const handleCheckboxChange = async (future: FutureContract, checked: boolean) => {
+    const key = `${future.commodity}-${future.contract_month}-${future.future_type}`;
+    
+    const newChecked = new Set(checkedFutures);
+    if (checked) {
+      newChecked.add(key);
+    } else {
+      newChecked.delete(key);
+    }
+    setCheckedFutures(newChecked);
+    
+    // Rebuild evaluations based on checked futures
+    const newEvaluations = futures
+      .filter(f => {
+        const fKey = `${f.commodity}-${f.contract_month}-${f.future_type}`;
+        return newChecked.has(fKey);
+      })
+      .map(f => {
+        const fKey = `${f.commodity}-${f.contract_month}-${f.future_type}`;
+        return {
+          commodity: f.commodity,
+          contract_month: f.contract_month,
+          price: f.price,
+          quantity: quantities[fKey] || 0,
+        };
+      });
+    
+    setEvaluatedFutures(newEvaluations);
+    
+    // Update chart
+    if (newEvaluations.length > 0) {
+      const today = new Date();
+      const oneYearAgo = new Date(today);
+      oneYearAgo.setFullYear(today.getFullYear() - 1);
+      const oneYearFuture = new Date(today);
+      oneYearFuture.setFullYear(today.getFullYear() + 1);
       
-      // Use preview endpoint (non-mutating per AGENTS.md 10.9)
-      const preview = await previewVarImpact({
-        commodity: future.commodity as Commodity,
-        contract_month: future.contract_month,
-        quantity: qty
+      const startDate = oneYearAgo.toISOString().split('T')[0];
+      const endDate = oneYearFuture.toISOString().split('T')[0];
+      
+      const evalResponse = await getPriceProjectionWithEvaluations({
+        start_date: startDate,
+        end_date: endDate,
+        evaluations: newEvaluations,
       });
       
-      // Show preview results
-      const deltaPortfolio = preview.delta_var.portfolio;
-      const deltaPercent = ((deltaPortfolio / preview.preview_var.portfolio) * 100).toFixed(1);
-      alert(
-        `VaR Impact Preview:\n\n` +
-        `Delta Portfolio VaR: $${deltaPortfolio.toLocaleString()} (${deltaPercent}%)\n` +
-        `New Portfolio VaR: $${preview.preview_var.portfolio.toLocaleString()}\n\n` +
-        `This is a preview only. Click "Add" to commit.`
-      );
-      
-    } catch (err) {
-      console.error('Failed to preview:', err);
-      alert('Failed to preview VaR impact');
-    } finally {
-      setEvaluating(false);
+      setEvalPriceData(evalResponse);
+    } else {
+      setEvalPriceData(null);
     }
   };
 
@@ -131,9 +160,25 @@ export const ValueAtRiskPage = () => {
     }
   };
 
-  const handleDrop = (future: FutureContract) => {
+  const handleDrop = async (future: FutureContract) => {
     const key = `${future.commodity}-${future.contract_month}-${future.future_type}`;
-    setQuantities({ ...quantities, [key]: 0 });
+    
+    // Remove from cart if it's there
+    if (cartFutures.has(key)) {
+      // TODO: Implement remove from hedge session API
+      const newCart = new Set(cartFutures);
+      newCart.delete(key);
+      setCartFutures(newCart);
+    }
+    
+    // Uncheck if checked
+    if (checkedFutures.has(key)) {
+      await handleCheckboxChange(future, false);
+    }
+    
+    // Reset quantity to suggested
+    const suggestedQty = Math.round(future.suggested_quantity);
+    setQuantities({ ...quantities, [key]: suggestedQty });
   };
 
   const handleQuantityChange = (future: FutureContract, newQty: number) => {
@@ -258,56 +303,62 @@ export const ValueAtRiskPage = () => {
             min="0"
           />
         </div>
-        <div style={{ display: 'flex', gap: '0.25rem' }}>
-          <button
-            onClick={() => handleEvaluate(future)}
-            disabled={evaluating}
-            style={{
-              flex: 1,
-              background: 'rgba(59, 130, 246, 0.2)',
-              border: '1px solid rgba(59, 130, 246, 0.4)',
-              borderRadius: '4px',
-              padding: '0.375rem',
-              color: '#3b82f6',
-              cursor: evaluating ? 'not-allowed' : 'pointer',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-            }}
-          >
-            ⚡ Eval
-          </button>
-          <button
-            onClick={() => handleAddToPortfolio(future)}
-            style={{
-              flex: 1,
-              background: 'rgba(16, 185, 129, 0.2)',
-              border: '1px solid rgba(16, 185, 129, 0.4)',
-              borderRadius: '4px',
-              padding: '0.375rem',
-              color: '#10b981',
-              cursor: 'pointer',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-            }}
-          >
-            ✓ Add
-          </button>
-          <button
-            onClick={() => handleDrop(future)}
-            style={{
-              flex: 1,
-              background: 'rgba(239, 68, 68, 0.2)',
-              border: '1px solid rgba(239, 68, 68, 0.4)',
-              borderRadius: '4px',
-              padding: '0.375rem',
-              color: '#ef4444',
-              cursor: 'pointer',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-            }}
-          >
-            ✕ Drop
-          </button>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {/* Checkbox for evaluation */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer', minWidth: '70px' }}>
+            <input
+              type="checkbox"
+              checked={checkedFutures.has(key)}
+              onChange={(e) => handleCheckboxChange(future, e.target.checked)}
+              style={{
+                width: '16px',
+                height: '16px',
+                cursor: 'pointer',
+                accentColor: '#3b82f6',
+              }}
+            />
+            <span style={{ fontSize: '0.75rem', color: '#ccc', fontWeight: 600 }}>
+              Eval
+            </span>
+          </label>
+          
+          {/* Add and Drop buttons */}
+          <div style={{ display: 'flex', gap: '0.25rem', flex: 1 }}>
+            <button
+              onClick={() => handleAddToPortfolio(future)}
+              disabled={cartFutures.has(key)}
+              style={{
+                flex: 1,
+                background: cartFutures.has(key) ? 'rgba(16, 185, 129, 0.4)' : 'rgba(16, 185, 129, 0.2)',
+                border: `1px solid ${cartFutures.has(key) ? '#10b981' : 'rgba(16, 185, 129, 0.4)'}`,
+                borderRadius: '4px',
+                padding: '0.375rem',
+                color: '#10b981',
+                cursor: cartFutures.has(key) ? 'not-allowed' : 'pointer',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                opacity: cartFutures.has(key) ? 0.7 : 1,
+              }}
+            >
+              {cartFutures.has(key) ? '✓ In Cart' : '+ Add'}
+            </button>
+            <button
+              onClick={() => handleDrop(future)}
+              style={{
+                flex: 1,
+                background: 'rgba(239, 68, 68, 0.2)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: '4px',
+                padding: '0.375rem',
+                color: '#ef4444',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+              }}
+            >
+              ✕ Drop
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -454,10 +505,11 @@ export const ValueAtRiskPage = () => {
               </div>
             </div>
             {priceData && (
-              <PriceProjectionChart 
-                data={priceData} 
-                selectedCommodities={selectedCommodities}
-              />
+            <PriceProjectionChart 
+              data={priceData}
+              evalData={evalPriceData}
+              selectedCommodities={selectedCommodities}
+            />
             )}
           </section>
 
@@ -486,7 +538,29 @@ export const ValueAtRiskPage = () => {
         {/* Right Sidebar - Futures (30% width) */}
         <aside className="var-sidebar">
           <div className="sidebar-header">
-            <h2>Available Futures</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <h2 style={{ margin: 0 }}>Available Futures</h2>
+              {evaluatedFutures.length > 0 && (
+                <button
+                  onClick={() => {
+                    setEvaluatedFutures([]);
+                    setEvalPriceData(null);
+                  }}
+                  style={{
+                    padding: '0.375rem 0.75rem',
+                    background: 'rgba(239, 68, 68, 0.2)',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    borderRadius: '4px',
+                    color: '#ef4444',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  Clear ({evaluatedFutures.length})
+                </button>
+              )}
+            </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
               <button
                 onClick={() => setGroupBy('commodity')}

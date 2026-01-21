@@ -13,7 +13,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-async def generate_mock_futures(db: AsyncSession) -> Dict[str, int]:
+async def generate_mock_futures(db: AsyncSession, customer_id: str = None) -> Dict[str, int]:
     """
     Generate mock futures for all commodities
     Creates 1M, 3M, 6M, 9M, 12M futures with:
@@ -22,6 +22,8 @@ async def generate_mock_futures(db: AsyncSession) -> Dict[str, int]:
     
     Returns count of futures created
     """
+    from app.models.database import Purchase
+    
     # Clear existing mock futures (both high and low)
     await db.execute(
         delete(MarketPrice).where(
@@ -38,11 +40,32 @@ async def generate_mock_futures(db: AsyncSession) -> Dict[str, int]:
         logger.warning("No commodities found in database")
         return {"futures_created": 0}
     
-    # Base prices per commodity (starting point)
-    base_prices = {
-        "sugar": 20.0,   # $ per unit
-        "flour": 15.0    # $ per unit
-    }
+    # Calculate base prices from recent purchase history (if customer provided)
+    base_prices = {}
+    for commodity in commodities:
+        if customer_id:
+            # Get recent purchases to determine realistic base price
+            purchases_result = await db.execute(
+                select(Purchase)
+                .where(
+                    Purchase.customer_id == customer_id,
+                    Purchase.commodity_id == commodity.id
+                )
+                .order_by(Purchase.purchase_date.desc())
+                .limit(3)
+            )
+            purchases = purchases_result.scalars().all()
+            
+            if purchases:
+                # Average of last 3 purchase prices
+                avg_price = sum(float(p.purchase_price) for p in purchases) / len(purchases)
+                base_prices[commodity.name.lower()] = avg_price
+            else:
+                # Fallback defaults
+                base_prices[commodity.name.lower()] = 20.0 if commodity.name.lower() == 'sugar' else 15.0
+        else:
+            # Fallback defaults
+            base_prices[commodity.name.lower()] = 20.0 if commodity.name.lower() == 'sugar' else 15.0
     
     today = date.today()
     futures_created = 0

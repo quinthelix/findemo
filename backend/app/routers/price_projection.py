@@ -29,6 +29,9 @@ class PricePoint(BaseModel):
     is_past: bool
     var: float  # Value at Risk (downside risk from baseline)
     is_milestone: bool  # True for 1M, 3M, 6M, 9M, 12M dates
+    volume: float  # Volume/quantity for this date
+    eval_high: float | None = None  # Evaluated high (only if evaluated)
+    eval_low: float | None = None  # Evaluated low (only if evaluated)
 
 
 class CommodityProjection(BaseModel):
@@ -72,25 +75,64 @@ async def generate_futures(
         raise HTTPException(status_code=500, detail=f"Failed to generate futures: {str(e)}")
 
 
-@router.get("/timeline", response_model=PriceProjectionResponse)
-async def get_price_projection_timeline(
-    start_date: date = Query(None),
-    end_date: date = Query(None),
+class EvaluationItem(BaseModel):
+    commodity: str
+    contract_month: str  # YYYY-MM-DD
+    price: float
+    quantity: float
+
+
+class EvaluationRequest(BaseModel):
+    start_date: str
+    end_date: str
+    evaluations: List[EvaluationItem] = []
+
+
+@router.post("/timeline-with-eval", response_model=PriceProjectionResponse)
+async def get_price_projection_with_evaluations(
+    request: EvaluationRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get price projection timeline with futures
+    Get price projection with multiple evaluations applied
+    Supports cumulative hedging scenarios
+    """
+    start_date = date.fromisoformat(request.start_date)
+    end_date = date.fromisoformat(request.end_date)
     
-    For PAST dates:
-    - price = historic purchase price
-    - high_future = price (same as historic)
-    - low_future = price (same as historic)
+    # Build evaluation map: {(commodity, month_key): [(price, quantity), ...]}
+    eval_map = {}
+    for eval_item in request.evaluations:
+        try:
+            eval_month_date = date.fromisoformat(eval_item.contract_month)
+            month_key = date(eval_month_date.year, eval_month_date.month, 1)
+            key = (eval_item.commodity.lower(), month_key)
+            
+            if key not in eval_map:
+                eval_map[key] = []
+            eval_map[key].append((eval_item.price, eval_item.quantity))
+            logger.info(f"Added evaluation: {key} -> price={eval_item.price}, qty={eval_item.quantity}")
+        except Exception as e:
+            logger.warning(f"Invalid evaluation item: {eval_item}, error: {e}")
     
-    For FUTURE dates:
-    - price = current commodity price (baseline)
-    - high_future = price from high-price futures
-    - low_future = price from low-price futures
+    logger.info(f"Total eval_map keys: {len(eval_map)}, keys: {list(eval_map.keys())}")
+    return await _calculate_price_projection(db, current_user, start_date, end_date, eval_map)
+
+
+@router.get("/timeline", response_model=PriceProjectionResponse)
+async def get_price_projection_timeline(
+    start_date: date = Query(None),
+    end_date: date = Query(None),
+    eval_commodity: str = Query(None, description="Commodity to evaluate (sugar/flour)"),
+    eval_contract_month: str = Query(None, description="Contract month (YYYY-MM-DD)"),
+    eval_price: float = Query(None, description="Future price to evaluate"),
+    eval_quantity: float = Query(None, description="Quantity to purchase"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get price projection timeline with futures (legacy single-evaluation endpoint)
     """
     # Default date range: 1 year history + 1 year future
     today = date.today()
@@ -98,6 +140,33 @@ async def get_price_projection_timeline(
         start_date = today - relativedelta(years=1)
     if not end_date:
         end_date = today + relativedelta(years=1)
+    
+    # Build eval_map for single evaluation (backward compatibility)
+    eval_map = {}
+    if eval_commodity and eval_contract_month and eval_price is not None and eval_quantity is not None:
+        try:
+            eval_month_date = date.fromisoformat(eval_contract_month)
+            month_key = date(eval_month_date.year, eval_month_date.month, 1)
+            key = (eval_commodity.lower(), month_key)
+            eval_map[key] = [(eval_price, eval_quantity)]
+        except:
+            pass
+    
+    return await _calculate_price_projection(db, current_user, start_date, end_date, eval_map)
+
+
+async def _calculate_price_projection(
+    db: AsyncSession,
+    current_user: User,
+    start_date: date,
+    end_date: date,
+    eval_map: dict  # {(commodity, month_key): [(price, qty), ...]}
+) -> PriceProjectionResponse:
+    """
+    Internal function to calculate price projection with evaluations
+    """
+    today = date.today()
+    today_month = date(today.year, today.month, 1)
     
     try:
         # Get all commodities
@@ -171,7 +240,10 @@ async def get_price_projection_timeline(
             
             while current_date <= end_date:
                 is_past = current_date < today
+                # Normalize to first of month for consistency
                 month_key = date(current_date.year, current_date.month, 1)
+                # Use month_key as the date in response for consistency
+                response_date = month_key
                 
                 # Check if this is a milestone date
                 is_milestone = month_key in milestone_dates
@@ -199,13 +271,16 @@ async def get_price_projection_timeline(
                     total_value = price * volume
                     
                     timeline.append(PricePoint(
-                        date=current_date.isoformat(),
+                        date=response_date.isoformat(),
                         price=total_value,
                         high_future=total_value,
                         low_future=total_value,
                         is_past=True,
                         var=0.0,  # No risk in past
-                        is_milestone=False  # Don't show milestones in past
+                        is_milestone=False,  # Don't show milestones in past
+                        volume=volume,
+                        eval_high=total_value,  # Past eval lines match solid lines
+                        eval_low=total_value
                     ))
                 else:
                     # FUTURE: Return null for price, only show high/low futures * volume
@@ -222,23 +297,51 @@ async def get_price_projection_timeline(
                     high_future_price = baseline_price * (1.0 + uncertainty)
                     low_future_price = baseline_price * (1.0 - uncertainty)
                     
-                    # Calculate total values
+                    # ALWAYS calculate normal scenario (no evaluation)
                     high_total = high_future_price * volume
                     low_total = low_future_price * volume
                     baseline_total = baseline_price * volume
+                    
+                    # Initialize eval values
+                    # For milestone dates and today, default to matching solid lines
+                    eval_key = (commodity_name, month_key)
+                    eval_high_value = None
+                    eval_low_value = None
+                    
+                    # Set eval values for: today OR milestone dates (where futures exist)
+                    is_today = month_key == today_month  # Compare month_key to today_month
+                    if is_today or is_milestone:
+                        # Default: eval lines match solid lines (no hedge)
+                        eval_high_value = high_total
+                        eval_low_value = low_total
+                    
+                    # Override with actual evaluation if present
+                    if eval_key in eval_map:
+                        # EVALUATION SCENARIO with multiple futures
+                        # Calculate locked-in value from all evaluated futures
+                        locked_value = sum(price * qty for price, qty in eval_map[eval_key])
+                        total_locked_qty = sum(qty for _, qty in eval_map[eval_key])
+                        remaining_volume = max(0, volume - total_locked_qty)
+                        
+                        eval_high_value = locked_value + (high_future_price * remaining_volume)
+                        eval_low_value = locked_value + (low_future_price * remaining_volume)
+                        logger.info(f"Found evaluation for {eval_key}: eval_high={eval_high_value}, eval_low={eval_low_value}")
                     
                     # VaR = downside risk from baseline
                     var_value = baseline_total - low_total
                     
                     # Multiply by volume
                     timeline.append(PricePoint(
-                        date=current_date.isoformat(),
+                        date=response_date.isoformat(),
                         price=0.0,  # Null/zero for future - don't show baseline
                         high_future=high_total,
                         low_future=low_total,
                         is_past=False,
                         var=var_value,
-                        is_milestone=is_milestone
+                        is_milestone=is_milestone,
+                        volume=volume,
+                        eval_high=eval_high_value,  # Set for today and milestones
+                        eval_low=eval_low_value  # Set for today and milestones
                     ))
                 
                 # Move to next month
